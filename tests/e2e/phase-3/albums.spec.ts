@@ -48,8 +48,8 @@ test("uploading a photo to existing Sydney location adds to that album", async (
     .count();
 
   await page.goto("/upload");
-  await page.locator('[data-test="file"]').setInputFiles("/tmp/test-photo.jpg");
-  await page.locator('[data-test="submit"]').click();
+  await page.locator('[data-test="files"]').setInputFiles("/tmp/test-photo.jpg");
+  await page.locator('[data-test="start"]').click();
 
   await expect(page.locator('[data-test="location-modal"]')).toBeVisible();
   await page.locator('[data-test="location-input"]').fill("sydney");

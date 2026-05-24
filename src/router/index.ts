@@ -6,6 +6,7 @@ const AlbumDetail = () => import("@/views/AlbumDetail.vue");
 const Login = () => import("@/views/Login.vue");
 const Upload = () => import("@/views/Upload.vue");
 const Admin = () => import("@/views/Admin.vue");
+const Share = () => import("@/views/Share.vue");
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -28,6 +29,11 @@ export const router = createRouter({
       name: "admin",
       component: Admin,
       meta: { requiresAuth: true, adminOnly: true },
+    },
+    {
+      path: "/share/:token",
+      name: "share",
+      component: Share,
     },
     { path: "/login", name: "login", component: Login, meta: { guestOnly: true } },
   ],

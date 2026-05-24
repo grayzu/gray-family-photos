@@ -30,8 +30,8 @@ test("upload without GPS shows location prompt, geocode finds Sydney, confirms a
   await loginAs(page, ADMIN_EMAIL);
 
   await page.goto("/upload");
-  await page.locator('[data-test="file"]').setInputFiles("/tmp/test-photo.jpg");
-  await page.locator('[data-test="submit"]').click();
+  await page.locator('[data-test="files"]').setInputFiles("/tmp/test-photo.jpg");
+  await page.locator('[data-test="start"]').click();
 
   await expect(page.locator('[data-test="location-modal"]')).toBeVisible();
 
@@ -55,8 +55,8 @@ test("invalid location query shows no-matches message", async ({ page }) => {
   await loginAs(page, ADMIN_EMAIL);
 
   await page.goto("/upload");
-  await page.locator('[data-test="file"]').setInputFiles("/tmp/test-photo.jpg");
-  await page.locator('[data-test="submit"]').click();
+  await page.locator('[data-test="files"]').setInputFiles("/tmp/test-photo.jpg");
+  await page.locator('[data-test="start"]').click();
 
   await expect(page.locator('[data-test="location-modal"]')).toBeVisible();
   await page.locator('[data-test="location-input"]').fill("xqzpdqzzzz");

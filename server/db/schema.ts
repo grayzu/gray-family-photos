@@ -110,5 +110,24 @@ export type EmailCode = typeof emailCodes.$inferSelect;
 export type GeocodeCacheEntry = typeof geocodeCache.$inferSelect;
 export type Album = typeof albums.$inferSelect;
 export type NewAlbum = typeof albums.$inferInsert;
+
+export const shareLinks = sqliteTable(
+  "share_links",
+  {
+    id: text("id").primaryKey(),
+    token: text("token").notNull().unique(),
+    albumId: text("album_id")
+      .notNull()
+      .references(() => albums.id, { onDelete: "cascade" }),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: integer("created_at").notNull(),
+    expiresAt: integer("expires_at"),
+  },
+  (t) => [index("share_links_album_idx").on(t.albumId)],
+);
+
+export type ShareLink = typeof shareLinks.$inferSelect;
 export type Photo = typeof photos.$inferSelect;
 export type NewPhoto = typeof photos.$inferInsert;

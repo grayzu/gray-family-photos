@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { and, eq, sql } from "drizzle-orm";
 import { randomBytes } from "node:crypto";
 import { db } from "./db/client.js";
-import { users, allowedEmails, photos, albums } from "./db/schema.js";
+import { users, allowedEmails, photos, albums, shareLinks } from "./db/schema.js";
 import {
   issueLoginCode,
   verifyLoginCode,
@@ -76,6 +76,47 @@ export function buildApp() {
       console.error("geocode failed:", err);
       return c.json({ error: "geocode failed" }, 502);
     }
+  });
+
+  app.get("/share/:token", async (c) => {
+    const token = c.req.param("token");
+    const linkRows = await db
+      .select()
+      .from(shareLinks)
+      .where(eq(shareLinks.token, token))
+      .limit(1);
+    const link = linkRows[0];
+    if (!link) return c.json({ error: "not found" }, 404);
+    if (link.expiresAt && link.expiresAt < Math.floor(Date.now() / 1000)) {
+      return c.json({ error: "expired" }, 404);
+    }
+    const albumRows = await db
+      .select()
+      .from(albums)
+      .where(eq(albums.id, link.albumId))
+      .limit(1);
+    const album = albumRows[0];
+    if (!album) return c.json({ error: "not found" }, 404);
+    const albumPhotos = await db
+      .select()
+      .from(photos)
+      .where(eq(photos.albumId, album.id))
+      .orderBy(sql`${photos.takenAt} ASC, ${photos.uploadedAt} ASC`);
+    return c.json({
+      album: {
+        id: album.id,
+        name: album.name,
+        locationDisplay: album.locationDisplay,
+      },
+      photos: albumPhotos.map((p) => ({
+        id: p.id,
+        originalUrl: publicUrl(p.r2OriginalKey),
+        thumbnailUrl: publicUrl(p.r2ThumbnailKey),
+        takenAt: p.takenAt,
+        width: p.width,
+        height: p.height,
+      })),
+    });
   });
 
   if (process.env.NODE_ENV !== "production") {
@@ -331,6 +372,69 @@ export function buildApp() {
           .delete(photos)
           .where(and(eq(photos.albumId, id), eq(photos.userId, user.id)));
         await maybeDeleteEmptyAlbum(id);
+        return c.json({ ok: true });
+      }),
+  );
+
+  app.route(
+    "/share",
+    authedRouter()
+      .post("/", async (c) => {
+        const user = c.get("user");
+        const body = await c.req.json().catch(() => null);
+        if (
+          !body ||
+          typeof (body as Record<string, unknown>).albumId !== "string"
+        ) {
+          return c.json({ error: "albumId required" }, 400);
+        }
+        const albumId = (body as Record<string, string>).albumId;
+        const ttlDays =
+          typeof (body as Record<string, unknown>).ttlDays === "number"
+            ? ((body as Record<string, number>).ttlDays as number)
+            : null;
+
+        const owns = await db
+          .select({ id: photos.id })
+          .from(photos)
+          .where(and(eq(photos.albumId, albumId), eq(photos.userId, user.id)))
+          .limit(1);
+        if (owns.length === 0) return c.json({ error: "album not found" }, 404);
+
+        const id = randomBytes(16).toString("hex");
+        const token = randomBytes(18).toString("base64url");
+        const now = Math.floor(Date.now() / 1000);
+        await db.insert(shareLinks).values({
+          id,
+          token,
+          albumId,
+          createdBy: user.id,
+          createdAt: now,
+          expiresAt: ttlDays ? now + ttlDays * 86400 : null,
+        });
+        return c.json({ id, token, albumId, expiresAt: ttlDays ? now + ttlDays * 86400 : null }, 201);
+      })
+      .get("/album/:albumId", async (c) => {
+        const user = c.get("user");
+        const albumId = c.req.param("albumId");
+        const owns = await db
+          .select({ id: photos.id })
+          .from(photos)
+          .where(and(eq(photos.albumId, albumId), eq(photos.userId, user.id)))
+          .limit(1);
+        if (owns.length === 0) return c.json({ error: "album not found" }, 404);
+        const rows = await db
+          .select()
+          .from(shareLinks)
+          .where(eq(shareLinks.albumId, albumId));
+        return c.json(rows);
+      })
+      .delete("/:token", async (c) => {
+        const user = c.get("user");
+        const token = c.req.param("token");
+        await db
+          .delete(shareLinks)
+          .where(and(eq(shareLinks.token, token), eq(shareLinks.createdBy, user.id)));
         return c.json({ ok: true });
       }),
   );
