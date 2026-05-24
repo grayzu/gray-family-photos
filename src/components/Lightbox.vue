@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onBeforeUnmount, watch } from "vue";
+import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
 
 export type LightboxPhoto = {
   id: string;
@@ -41,6 +41,31 @@ function onKey(e: KeyboardEvent) {
   else if (e.key === "Escape") emit("close");
 }
 
+const SWIPE_THRESHOLD_PX = 50;
+const touchStartX = ref<number | null>(null);
+const touchStartY = ref<number | null>(null);
+
+function onTouchStart(e: TouchEvent) {
+  const t = e.touches[0];
+  if (!t) return;
+  touchStartX.value = t.clientX;
+  touchStartY.value = t.clientY;
+}
+
+function onTouchEnd(e: TouchEvent) {
+  if (touchStartX.value === null || touchStartY.value === null) return;
+  const t = e.changedTouches[0];
+  if (!t) return;
+  const dx = t.clientX - touchStartX.value;
+  const dy = t.clientY - touchStartY.value;
+  touchStartX.value = null;
+  touchStartY.value = null;
+  if (Math.abs(dx) < SWIPE_THRESHOLD_PX) return;
+  if (Math.abs(dy) > Math.abs(dx)) return;
+  if (dx < 0) next();
+  else prev();
+}
+
 onMounted(() => window.addEventListener("keydown", onKey));
 onBeforeUnmount(() => window.removeEventListener("keydown", onKey));
 
@@ -61,15 +86,17 @@ function formatDate(taken: number | null) {
 <template>
   <div
     v-if="current !== null && index !== null"
-    class="fixed inset-0 z-50 bg-black/90 flex items-center justify-center"
+    class="fixed inset-0 z-50 bg-black/90 flex items-center justify-center select-none"
     data-test="lightbox"
     @click="emit('close')"
+    @touchstart="onTouchStart"
+    @touchend="onTouchEnd"
   >
     <button
       data-test="lightbox-prev"
       @click.stop="prev"
       aria-label="Previous"
-      class="absolute left-4 top-1/2 -translate-y-1/2 text-white text-3xl bg-black/40 hover:bg-black/70 w-12 h-12 rounded-full flex items-center justify-center"
+      class="absolute left-2 sm:left-4 top-1/2 -translate-y-1/2 text-white text-3xl bg-black/40 hover:bg-black/70 w-12 h-12 rounded-full flex items-center justify-center"
     >
       ‹
     </button>
@@ -78,7 +105,7 @@ function formatDate(taken: number | null) {
       data-test="lightbox-next"
       @click.stop="next"
       aria-label="Next"
-      class="absolute right-4 top-1/2 -translate-y-1/2 text-white text-3xl bg-black/40 hover:bg-black/70 w-12 h-12 rounded-full flex items-center justify-center"
+      class="absolute right-2 sm:right-4 top-1/2 -translate-y-1/2 text-white text-3xl bg-black/40 hover:bg-black/70 w-12 h-12 rounded-full flex items-center justify-center"
     >
       ›
     </button>
@@ -99,7 +126,7 @@ function formatDate(taken: number | null) {
     <img
       :src="current.originalUrl"
       :alt="`Photo ${current.id}`"
-      class="max-w-[95vw] max-h-[90vh] object-contain"
+      class="max-w-[95vw] max-h-[90vh] object-contain pointer-events-none"
       @click.stop
     />
 

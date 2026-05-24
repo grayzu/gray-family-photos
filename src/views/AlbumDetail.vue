@@ -2,6 +2,8 @@
 import { onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import Lightbox, { type LightboxPhoto } from "@/components/Lightbox.vue";
+import MoveToAlbumModal from "@/components/MoveToAlbumModal.vue";
+import EditPhotoModal from "@/components/EditPhotoModal.vue";
 
 type PhotoInAlbum = LightboxPhoto & {
   thumbnailUrl: string;
@@ -39,6 +41,9 @@ const shareLinks = ref<ShareLink[]>([]);
 const sharePanelOpen = ref(false);
 const creatingShare = ref(false);
 
+const moveModalPhoto = ref<PhotoInAlbum | null>(null);
+const editModalPhoto = ref<PhotoInAlbum | null>(null);
+
 async function load() {
   loading.value = true;
   error.value = null;
@@ -73,7 +78,13 @@ async function deletePhoto(id: string) {
     method: "DELETE",
     credentials: "include",
   });
-  if (res.ok) await load();
+  if (res.ok) {
+    if (album.value && album.value.photos.length === 1) {
+      router.replace("/");
+      return;
+    }
+    await load();
+  }
 }
 
 async function deleteAlbum() {
@@ -127,6 +138,29 @@ function shareUrl(token: string) {
 
 async function copyShareUrl(token: string) {
   await navigator.clipboard.writeText(shareUrl(token));
+}
+
+async function onMoveConfirm(targetAlbumId: string) {
+  if (!moveModalPhoto.value || !album.value) return;
+  const res = await fetch(`/api/photos/${moveModalPhoto.value.id}/move`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ albumId: targetAlbumId }),
+  });
+  moveModalPhoto.value = null;
+  if (res.ok) {
+    if (album.value.photos.length === 1) {
+      router.replace("/");
+      return;
+    }
+    await load();
+  }
+}
+
+async function onEditSaved() {
+  editModalPhoto.value = null;
+  await load();
 }
 
 onMounted(load);
@@ -243,12 +277,31 @@ onMounted(load);
               class="w-full h-full object-cover"
             />
           </button>
-          <button
-            @click="deletePhoto(p.id)"
-            class="absolute top-2 right-2 bg-surface/90 text-coral text-xs px-2 py-1 rounded shadow opacity-0 group-hover:opacity-100 transition-opacity border border-border-subtle"
+          <div
+            class="absolute top-2 right-2 flex flex-col gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"
           >
-            Delete
-          </button>
+            <button
+              @click="editModalPhoto = p"
+              data-test="photo-edit"
+              class="bg-surface/90 text-text-primary text-xs px-2 py-1 rounded shadow border border-border-subtle hover:border-accent"
+            >
+              Edit
+            </button>
+            <button
+              @click="moveModalPhoto = p"
+              data-test="photo-move"
+              class="bg-surface/90 text-text-primary text-xs px-2 py-1 rounded shadow border border-border-subtle hover:border-accent"
+            >
+              Move
+            </button>
+            <button
+              @click="deletePhoto(p.id)"
+              data-test="photo-delete"
+              class="bg-surface/90 text-coral text-xs px-2 py-1 rounded shadow border border-border-subtle"
+            >
+              Delete
+            </button>
+          </div>
         </div>
       </div>
 
@@ -257,6 +310,24 @@ onMounted(load);
         :index="lightboxIdx"
         @close="lightboxIdx = null"
         @navigate="(i) => (lightboxIdx = i)"
+      />
+
+      <MoveToAlbumModal
+        v-if="moveModalPhoto && album"
+        :open="moveModalPhoto !== null"
+        :current-album-id="album.id"
+        @select="onMoveConfirm"
+        @cancel="moveModalPhoto = null"
+      />
+
+      <EditPhotoModal
+        v-if="editModalPhoto"
+        :open="editModalPhoto !== null"
+        :photo-id="editModalPhoto.id"
+        :taken-at="editModalPhoto.takenAt"
+        :location-display="editModalPhoto.locationDisplay"
+        @saved="onEditSaved"
+        @cancel="editModalPhoto = null"
       />
     </div>
   </div>

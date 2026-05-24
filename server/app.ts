@@ -629,6 +629,54 @@ export function buildApp() {
 
         return c.json({ ok: true });
       })
+      .post("/:id/move", async (c) => {
+        const user = c.get("user");
+        const id = c.req.param("id");
+        const body = await c.req.json().catch(() => null);
+        const targetAlbumId =
+          body && typeof (body as Record<string, unknown>).albumId === "string"
+            ? ((body as Record<string, string>).albumId as string)
+            : null;
+        if (!targetAlbumId) return c.json({ error: "albumId required" }, 400);
+
+        const photoRows = await db
+          .select()
+          .from(photos)
+          .where(eq(photos.id, id))
+          .limit(1);
+        const photo = photoRows[0];
+        if (!photo || photo.userId !== user.id)
+          return c.json({ error: "photo not found" }, 404);
+
+        const targetAlbum = await db
+          .select()
+          .from(albums)
+          .where(eq(albums.id, targetAlbumId))
+          .limit(1);
+        if (!targetAlbum[0]) return c.json({ error: "album not found" }, 404);
+
+        const ownsTarget = await db
+          .select({ id: photos.id })
+          .from(photos)
+          .where(and(eq(photos.albumId, targetAlbumId), eq(photos.userId, user.id)))
+          .limit(1);
+        if (ownsTarget.length === 0)
+          return c.json({ error: "album not found" }, 404);
+
+        const prevAlbumId = photo.albumId;
+        if (prevAlbumId === targetAlbumId) return c.json({ ok: true });
+
+        await db
+          .update(photos)
+          .set({ albumId: targetAlbumId })
+          .where(eq(photos.id, id));
+
+        if (prevAlbumId) {
+          await maybeFixAlbumCover(prevAlbumId);
+          await maybeDeleteEmptyAlbum(prevAlbumId);
+        }
+        return c.json({ ok: true });
+      })
       .delete("/:id", async (c) => {
         const user = c.get("user");
         const id = c.req.param("id");
