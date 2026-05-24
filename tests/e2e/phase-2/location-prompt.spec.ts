@@ -42,7 +42,7 @@ test("upload without GPS shows location prompt, geocode finds Sydney, confirms a
 
   await page.locator('[data-test="location-option"]').first().click();
   const uploadPromise = page.waitForResponse(
-    (r) => r.url().includes("/api/photos/upload") && r.request().method() === "POST",
+    (r) => r.url().includes("/api/photos/commit") && r.request().method() === "POST",
   );
   await page.locator('[data-test="location-confirm"]').click();
   const res = await uploadPromise;

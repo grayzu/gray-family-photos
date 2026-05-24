@@ -58,7 +58,7 @@ test("uploading a photo to existing Sydney location adds to that album", async (
   });
   await page.locator('[data-test="location-option"]').first().click();
   const uploadResponse = page.waitForResponse(
-    (r) => r.url().includes("/api/photos/upload") && r.request().method() === "POST",
+    (r) => r.url().includes("/api/photos/commit") && r.request().method() === "POST",
   );
   await page.locator('[data-test="location-confirm"]').click();
   const res = await uploadResponse;

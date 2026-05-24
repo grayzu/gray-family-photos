@@ -17,13 +17,10 @@ import {
 import { sendCodeEmail, getDevLastCode } from "./email.js";
 import {
   newPhotoKey,
-  uploadOriginal,
-  generateAndUploadThumbnail,
-  imageDimensions,
+  presignPut,
   publicUrl,
   deleteObject,
 } from "./storage.js";
-import exifr from "exifr";
 import { geocode } from "./geocoding.js";
 import {
   assignPhotoToAlbum,
@@ -462,78 +459,77 @@ export function buildApp() {
           })),
         );
       })
-      .post("/upload", async (c) => {
-        const user = c.get("user");
-        const form = await c.req.formData();
-        const file = form.get("file");
-        if (!(file instanceof File)) return c.json({ error: "file required" }, 400);
-        const lowerName = file.name.toLowerCase();
-        const isImageMime = file.type.startsWith("image/");
-        const isHeicByName = lowerName.endsWith(".heic") || lowerName.endsWith(".heif");
-        if (!isImageMime && !isHeicByName) {
+      .post("/upload-urls", async (c) => {
+        c.get("user");
+        const body = (await c.req.json().catch(() => null)) as Record<
+          string,
+          unknown
+        > | null;
+        if (!body) return c.json({ error: "body required" }, 400);
+        const fileName = String(body.fileName ?? "photo.jpg");
+        const mimeType = String(body.mimeType ?? "image/jpeg");
+        if (!mimeType.startsWith("image/")) {
           return c.json({ error: "image only" }, 400);
         }
-        if (lowerName.endsWith(".heic") || lowerName.endsWith(".heif") || file.type === "image/heic" || file.type === "image/heif") {
-          return c.json(
-            {
-              error:
-                "HEIC photos must be converted to JPEG before upload. Please retry from a browser that supports automatic HEIC conversion.",
-            },
-            400,
-          );
-        }
-
-        const buffer = Buffer.from(await file.arrayBuffer());
-        const ext = file.name.split(".").pop() ?? "jpg";
-        const { originalKey, thumbnailKey } = newPhotoKey(ext);
-
-        let takenAt: number | null = null;
-        let latitude: number | null = null;
-        let longitude: number | null = null;
-        let locationName: string | null = null;
-        let locationDisplay: string | null = null;
-        let locationCountry: string | null = null;
-        try {
-          const ex = await exifr.parse(buffer, { gps: true });
-          if (ex?.DateTimeOriginal instanceof Date) {
-            takenAt = Math.floor(ex.DateTimeOriginal.getTime() / 1000);
-          }
-          if (
-            typeof ex?.latitude === "number" &&
-            typeof ex?.longitude === "number"
-          ) {
-            latitude = ex.latitude;
-            longitude = ex.longitude;
-          }
-        } catch {
-          /* EXIF parse is best-effort; corrupt EXIF must not block upload */
-        }
-
-        const fLat = form.get("latitude");
-        const fLon = form.get("longitude");
-        const fDisplay = form.get("locationDisplay");
-        const fName = form.get("locationName");
-        const fCountry = form.get("locationCountry");
-        if (typeof fLat === "string" && typeof fLon === "string" && typeof fDisplay === "string") {
-          const overrideLat = Number(fLat);
-          const overrideLon = Number(fLon);
-          if (Number.isFinite(overrideLat) && Number.isFinite(overrideLon)) {
-            latitude = overrideLat;
-            longitude = overrideLon;
-            locationDisplay = fDisplay;
-            locationName = typeof fName === "string" && fName ? fName : null;
-            locationCountry =
-              typeof fCountry === "string" && fCountry ? fCountry : null;
-          }
-        }
-
-        if (latitude === null || longitude === null) {
+        const lat = Number(body.latitude);
+        const lon = Number(body.longitude);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
           return c.json({ error: "location required" }, 400);
         }
+        const ext = fileName.split(".").pop() ?? "jpg";
+        const { originalKey, thumbnailKey } = newPhotoKey(ext);
+        const [originalUploadUrl, thumbnailUploadUrl] = await Promise.all([
+          presignPut(originalKey, mimeType, 600),
+          presignPut(thumbnailKey, "image/jpeg", 600),
+        ]);
+        return c.json({
+          originalKey,
+          thumbnailKey,
+          originalUploadUrl,
+          thumbnailUploadUrl,
+        });
+      })
+      .post("/commit", async (c) => {
+        const user = c.get("user");
+        const body = (await c.req.json().catch(() => null)) as Record<
+          string,
+          unknown
+        > | null;
+        if (!body) return c.json({ error: "body required" }, 400);
 
-        const { width, height } = await imageDimensions(buffer);
-        await uploadOriginal(originalKey, buffer, file.type);
-        await generateAndUploadThumbnail(buffer, thumbnailKey);
+        const originalKey = typeof body.originalKey === "string" ? body.originalKey : null;
+        const thumbnailKey = typeof body.thumbnailKey === "string" ? body.thumbnailKey : null;
+        const mimeType = typeof body.mimeType === "string" ? body.mimeType : null;
+        const fileSize = typeof body.fileSize === "number" ? body.fileSize : null;
+        const width = typeof body.width === "number" ? body.width : null;
+        const height = typeof body.height === "number" ? body.height : null;
+        const latitude = typeof body.latitude === "number" ? body.latitude : null;
+        const longitude = typeof body.longitude === "number" ? body.longitude : null;
+        const locationDisplay =
+          typeof body.locationDisplay === "string" ? body.locationDisplay : null;
+        const locationName =
+          typeof body.locationName === "string" ? body.locationName : null;
+        const locationCountry =
+          typeof body.locationCountry === "string" ? body.locationCountry : null;
+        const takenAt =
+          typeof body.takenAt === "number" ? body.takenAt : null;
+
+        if (
+          !originalKey ||
+          !thumbnailKey ||
+          !mimeType ||
+          fileSize === null ||
+          width === null ||
+          height === null ||
+          latitude === null ||
+          longitude === null ||
+          !locationDisplay
+        ) {
+          return c.json({ error: "missing required fields" }, 400);
+        }
+        if (!originalKey.startsWith("originals/") || !thumbnailKey.startsWith("thumbnails/")) {
+          return c.json({ error: "invalid keys" }, 400);
+        }
 
         const id = randomBytes(16).toString("hex");
         await db.insert(photos).values({
@@ -549,8 +545,8 @@ export function buildApp() {
           locationCountry,
           width,
           height,
-          fileSize: buffer.length,
-          mimeType: file.type,
+          fileSize,
+          mimeType,
           uploadedAt: Math.floor(Date.now() / 1000),
         });
 

@@ -35,7 +35,7 @@ async function uploadAt(
   });
   await page.locator('[data-test="location-option"]').first().click();
   const uploadRes = page.waitForResponse(
-    (r) => r.url().includes("/api/photos/upload") && r.request().method() === "POST",
+    (r) => r.url().includes("/api/photos/commit") && r.request().method() === "POST",
   );
   await page.locator('[data-test="location-confirm"]').click();
   await uploadRes;

@@ -29,6 +29,22 @@ photo storage (zero egress fees).
      - Connect a custom domain (e.g. `photos.grayszone.com`) - the CNAME is
        auto-created since DNS is already on Cloudflare
      - Create an R2 API token with Object Read & Write scope for the bucket
+     - **Configure CORS** on the bucket (Settings → CORS Policy) so the
+       browser can upload originals directly. Use this JSON:
+       ```json
+       [
+         {
+           "AllowedOrigins": [
+             "https://gray-family-photos.vercel.app",
+             "http://localhost:3000"
+           ],
+           "AllowedMethods": ["PUT", "GET", "HEAD"],
+           "AllowedHeaders": ["*"],
+           "ExposeHeaders": ["ETag"],
+           "MaxAgeSeconds": 3600
+         }
+       ]
+       ```
    - Generate `SESSION_SECRET`: `openssl rand -hex 32`
 
 2. Install dependencies:

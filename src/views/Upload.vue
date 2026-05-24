@@ -6,6 +6,7 @@ import LocationPromptModal, {
 } from "@/components/LocationPromptModal.vue";
 import { hasGps, parsePhotoExif, type ParsedExif } from "@/lib/exif";
 import { convertHeicToJpeg, isHeic } from "@/lib/heic";
+import { generateThumbnail } from "@/lib/thumbnail";
 
 type Status =
   | "pending"
@@ -103,25 +104,89 @@ async function uploadOne(i: number) {
   const job = jobs.value[i]!;
   job.status = "uploading";
   job.error = null;
-  const fd = new FormData();
-  fd.append("file", job.uploadFile);
-  if (job.location) {
-    fd.append("latitude", String(job.location.lat));
-    fd.append("longitude", String(job.location.lon));
-    fd.append("locationDisplay", job.location.display);
-    fd.append("locationName", job.location.name);
-    if (job.location.countryCode)
-      fd.append("locationCountry", job.location.countryCode);
-  }
   try {
-    const res = await fetch("/api/photos/upload", {
+    const exifLat = job.exif?.latitude ?? null;
+    const exifLon = job.exif?.longitude ?? null;
+    const lat = job.location?.lat ?? exifLat;
+    const lon = job.location?.lon ?? exifLon;
+    if (lat === null || lon === null) {
+      throw new Error("location required");
+    }
+
+    const thumb = await generateThumbnail(job.uploadFile);
+
+    const urlsRes = await fetch("/api/photos/upload-urls", {
       method: "POST",
       credentials: "include",
-      body: fd,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        fileName: job.uploadFile.name,
+        mimeType: job.uploadFile.type,
+        latitude: lat,
+        longitude: lon,
+      }),
     });
-    if (!res.ok) {
-      const err = (await res.json().catch(() => ({}))) as { error?: string };
-      throw new Error(err.error ?? `HTTP ${res.status}`);
+    if (!urlsRes.ok) {
+      const err = (await urlsRes.json().catch(() => ({}))) as { error?: string };
+      throw new Error(err.error ?? `HTTP ${urlsRes.status}`);
+    }
+    const {
+      originalKey,
+      thumbnailKey,
+      originalUploadUrl,
+      thumbnailUploadUrl,
+    } = (await urlsRes.json()) as {
+      originalKey: string;
+      thumbnailKey: string;
+      originalUploadUrl: string;
+      thumbnailUploadUrl: string;
+    };
+
+    const [origPut, thumbPut] = await Promise.all([
+      fetch(originalUploadUrl, {
+        method: "PUT",
+        body: job.uploadFile,
+        headers: { "content-type": job.uploadFile.type },
+      }),
+      fetch(thumbnailUploadUrl, {
+        method: "PUT",
+        body: thumb.blob,
+        headers: { "content-type": "image/jpeg" },
+      }),
+    ]);
+    if (!origPut.ok || !thumbPut.ok) {
+      throw new Error(
+        "Direct R2 upload failed. The R2 bucket may need a CORS policy that allows PUT from this origin.",
+      );
+    }
+
+    const takenAt =
+      job.exif?.takenAt instanceof Date
+        ? Math.floor(job.exif.takenAt.getTime() / 1000)
+        : null;
+
+    const commitRes = await fetch("/api/photos/commit", {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        originalKey,
+        thumbnailKey,
+        mimeType: job.uploadFile.type,
+        fileSize: job.uploadFile.size,
+        width: thumb.width,
+        height: thumb.height,
+        takenAt,
+        latitude: lat,
+        longitude: lon,
+        locationDisplay: job.location?.display ?? null,
+        locationName: job.location?.name ?? null,
+        locationCountry: job.location?.countryCode ?? null,
+      }),
+    });
+    if (!commitRes.ok) {
+      const err = (await commitRes.json().catch(() => ({}))) as { error?: string };
+      throw new Error(err.error ?? `HTTP ${commitRes.status}`);
     }
     job.status = "done";
   } catch (e: unknown) {
