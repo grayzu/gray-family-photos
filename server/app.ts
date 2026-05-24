@@ -1,8 +1,8 @@
 import { Hono } from "hono";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { randomBytes } from "node:crypto";
 import { db } from "./db/client.js";
-import { users, allowedEmails, photos } from "./db/schema.js";
+import { users, allowedEmails, photos, albums } from "./db/schema.js";
 import {
   issueLoginCode,
   verifyLoginCode,
@@ -25,6 +25,11 @@ import {
 } from "./storage.js";
 import exifr from "exifr";
 import { geocode } from "./geocoding.js";
+import {
+  assignPhotoToAlbum,
+  maybeDeleteEmptyAlbum,
+  maybeFixAlbumCover,
+} from "./albums.js";
 
 export function buildApp() {
   const app = new Hono().basePath("/api");
@@ -42,19 +47,21 @@ export function buildApp() {
   type Variables = {
     user: { id: string; email: string; name: string; isAdmin: boolean };
   };
-  const authed = new Hono<{ Variables: Variables }>().use(async (c, next) => {
-    const token = readSessionCookie(c.req.header("cookie"));
-    if (!token) return c.json({ error: "unauthorized" }, 401);
-    const v = await validateSessionToken(token);
-    if (!v) return c.json({ error: "unauthorized" }, 401);
-    c.set("user", {
-      id: v.user.id,
-      email: v.user.email,
-      name: v.user.name,
-      isAdmin: v.user.isAdmin,
+  function authedRouter() {
+    return new Hono<{ Variables: Variables }>().use(async (c, next) => {
+      const token = readSessionCookie(c.req.header("cookie"));
+      if (!token) return c.json({ error: "unauthorized" }, 401);
+      const v = await validateSessionToken(token);
+      if (!v) return c.json({ error: "unauthorized" }, 401);
+      c.set("user", {
+        id: v.user.id,
+        email: v.user.email,
+        name: v.user.name,
+        isAdmin: v.user.isAdmin,
+      });
+      await next();
     });
-    await next();
-  });
+  }
 
   app.get("/health", (c) => c.json({ ok: true }));
 
@@ -146,7 +153,7 @@ export function buildApp() {
 
   app.route(
     "/admin/allowed-emails",
-    authed
+    authedRouter()
       .get("/", async (c) => {
         const user = c.get("user");
         if (!user.isAdmin) return c.json({ error: "admin only" }, 403);
@@ -201,8 +208,136 @@ export function buildApp() {
   );
 
   app.route(
+    "/albums",
+    authedRouter()
+      .get("/", async (c) => {
+        const user = c.get("user");
+
+        const photoRows = await db
+          .select({
+            albumId: photos.albumId,
+            id: photos.id,
+            thumbKey: photos.r2ThumbnailKey,
+            uploadedAt: photos.uploadedAt,
+          })
+          .from(photos)
+          .where(eq(photos.userId, user.id));
+
+        const countsByAlbum = new Map<string, { count: number; coverKey: string | null; coverUploadedAt: number }>();
+        for (const p of photoRows) {
+          if (!p.albumId) continue;
+          const existing = countsByAlbum.get(p.albumId);
+          if (!existing) {
+            countsByAlbum.set(p.albumId, {
+              count: 1,
+              coverKey: p.thumbKey,
+              coverUploadedAt: p.uploadedAt,
+            });
+          } else {
+            existing.count++;
+            if (p.uploadedAt > existing.coverUploadedAt) {
+              existing.coverKey = p.thumbKey;
+              existing.coverUploadedAt = p.uploadedAt;
+            }
+          }
+        }
+
+        const albumRows = await db.select().from(albums);
+        const visible = albumRows
+          .map((a) => {
+            const info = countsByAlbum.get(a.id);
+            if (!info) return null;
+            return {
+              id: a.id,
+              name: a.name,
+              year: a.year,
+              month: a.month,
+              locationDisplay: a.locationDisplay,
+              photoCount: info.count,
+              coverUrl: info.coverKey ? publicUrl(info.coverKey) : null,
+            };
+          })
+          .filter((x): x is NonNullable<typeof x> => x !== null)
+          .sort((a, b) => {
+            if (a.year !== b.year) return b.year - a.year;
+            if (a.month !== b.month) return b.month - a.month;
+            return a.name.localeCompare(b.name);
+          });
+
+        return c.json(visible);
+      })
+      .get("/:id", async (c) => {
+        const user = c.get("user");
+        const id = c.req.param("id");
+        const album = await db
+          .select()
+          .from(albums)
+          .where(eq(albums.id, id))
+          .limit(1);
+        if (!album[0]) return c.json({ error: "not found" }, 404);
+        const albumPhotos = await db
+          .select()
+          .from(photos)
+          .where(and(eq(photos.albumId, id), eq(photos.userId, user.id)))
+          .orderBy(sql`${photos.takenAt} ASC, ${photos.uploadedAt} ASC`);
+        return c.json({
+          id: album[0].id,
+          name: album[0].name,
+          year: album[0].year,
+          month: album[0].month,
+          locationDisplay: album[0].locationDisplay,
+          photos: albumPhotos.map((p) => ({
+            id: p.id,
+            originalUrl: publicUrl(p.r2OriginalKey),
+            thumbnailUrl: publicUrl(p.r2ThumbnailKey),
+            takenAt: p.takenAt,
+            width: p.width,
+            height: p.height,
+            uploadedAt: p.uploadedAt,
+            locationDisplay: p.locationDisplay,
+          })),
+        });
+      })
+      .patch("/:id", async (c) => {
+        const id = c.req.param("id");
+        const body = await c.req.json().catch(() => null);
+        if (
+          !body ||
+          typeof body !== "object" ||
+          typeof (body as Record<string, unknown>).name !== "string"
+        ) {
+          return c.json({ error: "name required" }, 400);
+        }
+        await db
+          .update(albums)
+          .set({ name: (body as Record<string, string>).name.trim() })
+          .where(eq(albums.id, id));
+        return c.json({ ok: true });
+      })
+      .delete("/:id", async (c) => {
+        const user = c.get("user");
+        const id = c.req.param("id");
+        const userPhotos = await db
+          .select()
+          .from(photos)
+          .where(and(eq(photos.albumId, id), eq(photos.userId, user.id)));
+        for (const p of userPhotos) {
+          await Promise.allSettled([
+            deleteObject(p.r2OriginalKey),
+            deleteObject(p.r2ThumbnailKey),
+          ]);
+        }
+        await db
+          .delete(photos)
+          .where(and(eq(photos.albumId, id), eq(photos.userId, user.id)));
+        await maybeDeleteEmptyAlbum(id);
+        return c.json({ ok: true });
+      }),
+  );
+
+  app.route(
     "/photos",
-    authed
+    authedRouter()
       .get("/", async (c) => {
         const user = c.get("user");
         const rows = await db
@@ -302,6 +437,15 @@ export function buildApp() {
           uploadedAt: Math.floor(Date.now() / 1000),
         });
 
+        const inserted = await db
+          .select()
+          .from(photos)
+          .where(eq(photos.id, id))
+          .limit(1);
+        const albumId = inserted[0]
+          ? await assignPhotoToAlbum(inserted[0])
+          : null;
+
         return c.json(
           {
             id,
@@ -311,9 +455,75 @@ export function buildApp() {
             width,
             height,
             locationDisplay,
+            albumId,
           },
           201,
         );
+      })
+      .patch("/:id", async (c) => {
+        const user = c.get("user");
+        const id = c.req.param("id");
+        const body = await c.req.json().catch(() => null);
+        if (!body || typeof body !== "object")
+          return c.json({ error: "body required" }, 400);
+
+        const rows = await db
+          .select()
+          .from(photos)
+          .where(eq(photos.id, id))
+          .limit(1);
+        const photo = rows[0];
+        if (!photo || photo.userId !== user.id)
+          return c.json({ error: "not found" }, 404);
+
+        const updates: Partial<typeof photos.$inferInsert> = {};
+        let needsReassign = false;
+        const b = body as Record<string, unknown>;
+
+        if ("takenAt" in b) {
+          updates.takenAt =
+            b.takenAt === null
+              ? null
+              : typeof b.takenAt === "number"
+                ? b.takenAt
+                : photo.takenAt;
+          needsReassign = true;
+        }
+        if (
+          typeof b.latitude === "number" &&
+          typeof b.longitude === "number" &&
+          typeof b.locationDisplay === "string"
+        ) {
+          updates.latitude = b.latitude;
+          updates.longitude = b.longitude;
+          updates.locationDisplay = b.locationDisplay;
+          if (typeof b.locationName === "string")
+            updates.locationName = b.locationName;
+          if (typeof b.locationCountry === "string")
+            updates.locationCountry = b.locationCountry;
+          needsReassign = true;
+        }
+
+        if (Object.keys(updates).length === 0)
+          return c.json({ error: "no fields to update" }, 400);
+
+        await db.update(photos).set(updates).where(eq(photos.id, id));
+
+        if (needsReassign) {
+          const prevAlbumId = photo.albumId;
+          const updated = await db
+            .select()
+            .from(photos)
+            .where(eq(photos.id, id))
+            .limit(1);
+          await assignPhotoToAlbum(updated[0]!);
+          if (prevAlbumId && prevAlbumId !== updated[0]!.albumId) {
+            await maybeFixAlbumCover(prevAlbumId);
+            await maybeDeleteEmptyAlbum(prevAlbumId);
+          }
+        }
+
+        return c.json({ ok: true });
       })
       .delete("/:id", async (c) => {
         const user = c.get("user");
@@ -330,6 +540,10 @@ export function buildApp() {
           deleteObject(p.r2ThumbnailKey),
         ]);
         await db.delete(photos).where(eq(photos.id, id));
+        if (p.albumId) {
+          await maybeFixAlbumCover(p.albumId);
+          await maybeDeleteEmptyAlbum(p.albumId);
+        }
         return c.json({ ok: true });
       }),
   );

@@ -4,6 +4,7 @@ import {
   integer,
   real,
   index,
+  uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
 export const users = sqliteTable("users", {
@@ -54,6 +55,24 @@ export const geocodeCache = sqliteTable("geocode_cache", {
   fetchedAt: integer("fetched_at").notNull(),
 });
 
+export const albums = sqliteTable(
+  "albums",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    year: integer("year").notNull(),
+    month: integer("month").notNull(),
+    locationKey: text("location_key").notNull(),
+    locationDisplay: text("location_display").notNull(),
+    coverPhotoId: text("cover_photo_id"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    uniqueIndex("albums_ymloc_unique").on(t.year, t.month, t.locationKey),
+    index("albums_year_idx").on(t.year),
+  ],
+);
+
 export const photos = sqliteTable(
   "photos",
   {
@@ -74,10 +93,12 @@ export const photos = sqliteTable(
     fileSize: integer("file_size").notNull(),
     mimeType: text("mime_type").notNull(),
     uploadedAt: integer("uploaded_at").notNull(),
+    albumId: text("album_id"),
   },
   (t) => [
     index("photos_user_id_idx").on(t.userId),
     index("photos_taken_at_idx").on(t.takenAt),
+    index("photos_album_id_idx").on(t.albumId),
   ],
 );
 
@@ -87,5 +108,7 @@ export type Session = typeof sessions.$inferSelect;
 export type AllowedEmail = typeof allowedEmails.$inferSelect;
 export type EmailCode = typeof emailCodes.$inferSelect;
 export type GeocodeCacheEntry = typeof geocodeCache.$inferSelect;
+export type Album = typeof albums.$inferSelect;
+export type NewAlbum = typeof albums.$inferInsert;
 export type Photo = typeof photos.$inferSelect;
 export type NewPhoto = typeof photos.$inferInsert;

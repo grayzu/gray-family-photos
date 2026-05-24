@@ -1,0 +1,71 @@
+import { test, expect, request } from "@playwright/test";
+
+const ADMIN_EMAIL = "mark@grayszone.com";
+const API_BASE = process.env.E2E_API_BASE ?? "http://localhost:3001";
+
+async function fetchLatestCodeForEmail(email: string): Promise<string> {
+  const ctx = await request.newContext({ baseURL: API_BASE });
+  const res = await ctx.get("/api/__test/latest-code", {
+    params: { email },
+  });
+  if (!res.ok()) throw new Error(`code fetch failed: ${res.status()}`);
+  const body = await res.json();
+  return body.code as string;
+}
+
+async function loginAs(page: import("@playwright/test").Page, email: string) {
+  await page.goto("/login");
+  await page.locator('[data-test="email"]').fill(email);
+  await page.locator('[data-test="send-code"]').click();
+  await expect(page.locator('[data-test="code"]')).toBeVisible();
+  const code = await fetchLatestCodeForEmail(email);
+  await page.locator('[data-test="code"]').fill(code);
+  await page.locator('[data-test="verify"]').click();
+  await expect(page).toHaveURL("/", { timeout: 15000 });
+}
+
+test("home (/) is the Albums list and shows at least one album with cover", async ({ page }) => {
+  await loginAs(page, ADMIN_EMAIL);
+  await expect(page.locator('[data-test="album-card"]').first()).toBeVisible({
+    timeout: 10000,
+  });
+});
+
+test("clicking an album shows its detail page with photos", async ({ page }) => {
+  await loginAs(page, ADMIN_EMAIL);
+  await page.locator('[data-test="album-card"]').first().click();
+  await expect(page.locator('[data-test="album-name"]')).toBeVisible({
+    timeout: 10000,
+  });
+  await expect(page.locator('[data-test="album-photo"]').first()).toBeVisible();
+});
+
+test("uploading a photo to existing Sydney location adds to that album", async ({ page }) => {
+  await loginAs(page, ADMIN_EMAIL);
+
+  const beforeCount = await page
+    .locator('[data-test="album-card"]')
+    .count();
+
+  await page.goto("/upload");
+  await page.locator('[data-test="file"]').setInputFiles("/tmp/test-photo.jpg");
+  await page.locator('[data-test="submit"]').click();
+
+  await expect(page.locator('[data-test="location-modal"]')).toBeVisible();
+  await page.locator('[data-test="location-input"]').fill("sydney");
+  await expect(page.locator('[data-test="location-option"]').first()).toBeVisible({
+    timeout: 5000,
+  });
+  await page.locator('[data-test="location-option"]').first().click();
+  const uploadResponse = page.waitForResponse(
+    (r) => r.url().includes("/api/photos/upload") && r.request().method() === "POST",
+  );
+  await page.locator('[data-test="location-confirm"]').click();
+  const res = await uploadResponse;
+  expect(res.status()).toBe(201);
+
+  await expect(page).toHaveURL("/", { timeout: 15000 });
+  await expect(page.locator('[data-test="album-card"]')).toHaveCount(beforeCount, {
+    timeout: 10000,
+  });
+});

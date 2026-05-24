@@ -22,7 +22,7 @@ async function handleLogout() {
       <nav class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
         <RouterLink to="/" class="font-semibold text-lg">Gray Family Photos</RouterLink>
         <div class="flex items-center gap-4 text-sm">
-          <RouterLink to="/" class="hover:underline">Home</RouterLink>
+          <RouterLink to="/" class="hover:underline">Albums</RouterLink>
           <RouterLink to="/upload" class="hover:underline">Upload</RouterLink>
           <RouterLink v-if="auth.isAdmin" to="/admin" class="hover:underline">Admin</RouterLink>
           <span class="text-slate-500">{{ auth.user?.name }}</span>
