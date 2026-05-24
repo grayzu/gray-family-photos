@@ -10,4 +10,13 @@ export default defineConfig({
       "@server": fileURLToPath(new URL("./server", import.meta.url)),
     },
   },
+  server: {
+    port: 3000,
+    proxy: {
+      "/api": {
+        target: "http://localhost:3001",
+        changeOrigin: true,
+      },
+    },
+  },
 });
