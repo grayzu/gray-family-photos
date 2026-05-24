@@ -1,7 +1,10 @@
 import { Resend } from "resend";
 import { env } from "./env.js";
 
-const resend = env.RESEND_API_KEY ? new Resend(env.RESEND_API_KEY) : null;
+const isProd = process.env.NODE_ENV === "production";
+const forceSendInDev = process.env.ALLOW_EMAIL_IN_DEV === "1";
+const useResend = !!env.RESEND_API_KEY && (isProd || forceSendInDev);
+const resend = useResend ? new Resend(env.RESEND_API_KEY!) : null;
 
 const devLastCode: Map<string, string> = new Map();
 
@@ -28,13 +31,16 @@ This code expires in 15 minutes. If you didn't request it, you can safely ignore
     <p style="font-size:13px;color:#64748b;">If you didn't request it, you can safely ignore this email.</p>
   </body></html>`;
 
-  if (process.env.NODE_ENV !== "production") {
+  if (!isProd) {
     devLastCode.set(to.trim().toLowerCase(), code);
   }
 
   if (!resend) {
     console.log(
-      `\n[email:dev-fallback] To: ${to}\nSubject: ${subject}\nCode: ${code}\n`,
+      `\n[email:dev-fallback] To: ${to}\nSubject: ${subject}\nCode: ${code}\n` +
+        (env.RESEND_API_KEY && !forceSendInDev
+          ? `(Resend disabled in dev. Set ALLOW_EMAIL_IN_DEV=1 to send real emails locally.)\n`
+          : ""),
     );
     return { id: "dev-fallback" };
   }
