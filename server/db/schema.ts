@@ -48,6 +48,12 @@ export const emailCodes = sqliteTable(
   (t) => [index("email_codes_email_idx").on(t.email)],
 );
 
+export const geocodeCache = sqliteTable("geocode_cache", {
+  query: text("query").primaryKey(),
+  response: text("response").notNull(),
+  fetchedAt: integer("fetched_at").notNull(),
+});
+
 export const photos = sqliteTable(
   "photos",
   {
@@ -80,5 +86,6 @@ export type NewUser = typeof users.$inferInsert;
 export type Session = typeof sessions.$inferSelect;
 export type AllowedEmail = typeof allowedEmails.$inferSelect;
 export type EmailCode = typeof emailCodes.$inferSelect;
+export type GeocodeCacheEntry = typeof geocodeCache.$inferSelect;
 export type Photo = typeof photos.$inferSelect;
 export type NewPhoto = typeof photos.$inferInsert;

@@ -28,11 +28,14 @@ This code expires in 15 minutes. If you didn't request it, you can safely ignore
     <p style="font-size:13px;color:#64748b;">If you didn't request it, you can safely ignore this email.</p>
   </body></html>`;
 
+  if (process.env.NODE_ENV !== "production") {
+    devLastCode.set(to.trim().toLowerCase(), code);
+  }
+
   if (!resend) {
     console.log(
       `\n[email:dev-fallback] To: ${to}\nSubject: ${subject}\nCode: ${code}\n`,
     );
-    devLastCode.set(to.trim().toLowerCase(), code);
     return { id: "dev-fallback" };
   }
 

@@ -24,6 +24,7 @@ import {
   deleteObject,
 } from "./storage.js";
 import exifr from "exifr";
+import { geocode } from "./geocoding.js";
 
 export function buildApp() {
   const app = new Hono().basePath("/api");
@@ -56,6 +57,19 @@ export function buildApp() {
   });
 
   app.get("/health", (c) => c.json({ ok: true }));
+
+  app.get("/geocode", async (c) => {
+    const q = c.req.query("q")?.trim();
+    if (!q) return c.json({ error: "q required" }, 400);
+    if (q.length < 2) return c.json([]);
+    try {
+      const results = await geocode(q);
+      return c.json(results);
+    } catch (err) {
+      console.error("geocode failed:", err);
+      return c.json({ error: "geocode failed" }, 502);
+    }
+  });
 
   if (process.env.NODE_ENV !== "production") {
     app.get("/__test/latest-code", async (c) => {
@@ -224,6 +238,9 @@ export function buildApp() {
         let takenAt: number | null = null;
         let latitude: number | null = null;
         let longitude: number | null = null;
+        let locationName: string | null = null;
+        let locationDisplay: string | null = null;
+        let locationCountry: string | null = null;
         try {
           const ex = await exifr.parse(buffer, { gps: true });
           if (ex?.DateTimeOriginal instanceof Date) {
@@ -240,6 +257,28 @@ export function buildApp() {
           /* EXIF parse is best-effort; corrupt EXIF must not block upload */
         }
 
+        const fLat = form.get("latitude");
+        const fLon = form.get("longitude");
+        const fDisplay = form.get("locationDisplay");
+        const fName = form.get("locationName");
+        const fCountry = form.get("locationCountry");
+        if (typeof fLat === "string" && typeof fLon === "string" && typeof fDisplay === "string") {
+          const overrideLat = Number(fLat);
+          const overrideLon = Number(fLon);
+          if (Number.isFinite(overrideLat) && Number.isFinite(overrideLon)) {
+            latitude = overrideLat;
+            longitude = overrideLon;
+            locationDisplay = fDisplay;
+            locationName = typeof fName === "string" && fName ? fName : null;
+            locationCountry =
+              typeof fCountry === "string" && fCountry ? fCountry : null;
+          }
+        }
+
+        if (latitude === null || longitude === null) {
+          return c.json({ error: "location required" }, 400);
+        }
+
         const { width, height } = await imageDimensions(buffer);
         await uploadOriginal(originalKey, buffer, file.type);
         await generateAndUploadThumbnail(buffer, thumbnailKey);
@@ -253,9 +292,9 @@ export function buildApp() {
           takenAt,
           latitude,
           longitude,
-          locationName: null,
-          locationDisplay: null,
-          locationCountry: null,
+          locationName,
+          locationDisplay,
+          locationCountry,
           width,
           height,
           fileSize: buffer.length,
@@ -271,6 +310,7 @@ export function buildApp() {
             takenAt,
             width,
             height,
+            locationDisplay,
           },
           201,
         );

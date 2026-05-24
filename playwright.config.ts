@@ -8,4 +8,5 @@ export default defineConfig({
   projects: [{ name: "chromium", use: { browserName: "chromium" } }],
   reporter: "list",
   retries: 0,
+  workers: 1,
 });
