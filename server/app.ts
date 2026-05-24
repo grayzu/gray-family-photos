@@ -2,10 +2,10 @@ import { Hono } from "hono";
 import { eq, sql } from "drizzle-orm";
 import { randomBytes } from "node:crypto";
 import { db } from "./db/client.js";
-import { users, invites, photos } from "./db/schema.js";
+import { users, allowedEmails, photos } from "./db/schema.js";
 import {
-  hashPassword,
-  verifyPassword,
+  issueLoginCode,
+  verifyLoginCode,
   generateSessionToken,
   createSession,
   validateSessionToken,
@@ -14,6 +14,7 @@ import {
   setSessionCookieHeader,
   clearSessionCookieHeader,
 } from "./auth.js";
+import { sendCodeEmail, getDevLastCode } from "./email.js";
 import {
   newPhotoKey,
   uploadOriginal,
@@ -26,6 +27,16 @@ import exifr from "exifr";
 
 export function buildApp() {
   const app = new Hono().basePath("/api");
+
+  if (process.env.NODE_ENV !== "production") {
+    app.use(async (c, next) => {
+      const t = Date.now();
+      await next();
+      console.log(
+        `[api] ${c.req.method} ${c.req.path} -> ${c.res.status} (${Date.now() - t}ms)`,
+      );
+    });
+  }
 
   type Variables = {
     user: { id: string; email: string; name: string; isAdmin: boolean };
@@ -46,102 +57,54 @@ export function buildApp() {
 
   app.get("/health", (c) => c.json({ ok: true }));
 
-  app.post("/auth/signup", async (c) => {
-    const body = await c.req.json().catch(() => null);
-    if (
-      !body ||
-      typeof body.email !== "string" ||
-      typeof body.password !== "string" ||
-      typeof body.name !== "string"
-    ) {
-      return c.json({ error: "email, password, name required" }, 400);
-    }
-    const email = body.email.trim().toLowerCase();
-    const password = body.password;
-    const name = body.name.trim();
-    if (password.length < 8)
-      return c.json({ error: "password must be >=8 chars" }, 400);
-
-    const countRow = await db.select({ n: sql<number>`count(*)` }).from(users);
-    const userCount = Number(countRow[0]?.n ?? 0);
-    const isBootstrap = userCount === 0;
-
-    let inviteRow: typeof invites.$inferSelect | undefined;
-    if (!isBootstrap) {
-      const token: string | undefined = body.invite;
-      if (!token || typeof token !== "string") {
-        return c.json({ error: "invite token required" }, 403);
-      }
-      const rows = await db
-        .select()
-        .from(invites)
-        .where(eq(invites.token, token))
-        .limit(1);
-      inviteRow = rows[0];
-      if (!inviteRow) return c.json({ error: "invalid invite" }, 403);
-      if (inviteRow.usedAt) return c.json({ error: "invite already used" }, 403);
-      if (inviteRow.expiresAt < Math.floor(Date.now() / 1000)) {
-        return c.json({ error: "invite expired" }, 403);
-      }
-    }
-
-    const existing = await db
-      .select()
-      .from(users)
-      .where(eq(users.email, email))
-      .limit(1);
-    if (existing.length)
-      return c.json({ error: "email already registered" }, 409);
-
-    const id = randomBytes(16).toString("hex");
-    await db.insert(users).values({
-      id,
-      email,
-      name,
-      passwordHash: hashPassword(password),
-      isAdmin: isBootstrap,
-      createdAt: Math.floor(Date.now() / 1000),
+  if (process.env.NODE_ENV !== "production") {
+    app.get("/__test/latest-code", async (c) => {
+      const email = c.req.query("email")?.trim().toLowerCase();
+      if (!email) return c.json({ error: "email required" }, 400);
+      const code = getDevLastCode(email);
+      if (!code) return c.json({ error: "no code" }, 404);
+      return c.json({ code });
     });
-    if (inviteRow) {
-      await db
-        .update(invites)
-        .set({ usedAt: Math.floor(Date.now() / 1000) })
-        .where(eq(invites.id, inviteRow.id));
-    }
+  }
 
-    const sessToken = generateSessionToken();
-    const sess = await createSession(sessToken, id);
-    c.header("Set-Cookie", setSessionCookieHeader(sessToken, sess.expiresAt));
-    return c.json({ id, email, name, isAdmin: isBootstrap }, 201);
+  app.post("/auth/request-code", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    if (!body || typeof body.email !== "string") {
+      return c.json({ error: "email required" }, 400);
+    }
+    const issued = await issueLoginCode(body.email);
+    if (issued) {
+      try {
+        await sendCodeEmail(body.email.trim().toLowerCase(), issued.code, issued.name ?? undefined);
+      } catch (err) {
+        console.error("sendCodeEmail failed:", err);
+      }
+    }
+    return c.json({ ok: true });
   });
 
-  app.post("/auth/login", async (c) => {
+  app.post("/auth/verify-code", async (c) => {
     const body = await c.req.json().catch(() => null);
     if (
       !body ||
       typeof body.email !== "string" ||
-      typeof body.password !== "string"
+      typeof body.code !== "string"
     ) {
-      return c.json({ error: "email and password required" }, 400);
+      return c.json({ error: "email and code required" }, 400);
     }
-    const email = body.email.trim().toLowerCase();
-    const rows = await db
-      .select()
-      .from(users)
-      .where(eq(users.email, email))
-      .limit(1);
-    const user = rows[0];
-    if (!user || !verifyPassword(body.password, user.passwordHash)) {
-      return c.json({ error: "invalid credentials" }, 401);
+    const result = await verifyLoginCode(body.email, body.code);
+    if (!result.ok) {
+      const status = result.reason === "locked" ? 429 : 401;
+      return c.json({ error: result.reason }, status);
     }
     const token = generateSessionToken();
-    const sess = await createSession(token, user.id);
+    const sess = await createSession(token, result.user.id);
     c.header("Set-Cookie", setSessionCookieHeader(token, sess.expiresAt));
     return c.json({
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      isAdmin: user.isAdmin,
+      id: result.user.id,
+      email: result.user.email,
+      name: result.user.name,
+      isAdmin: result.user.isAdmin,
     });
   });
 
@@ -168,31 +131,59 @@ export function buildApp() {
   });
 
   app.route(
-    "/invites",
-    authed.post("/", async (c) => {
-      const user = c.get("user");
-      if (!user.isAdmin) return c.json({ error: "admin only" }, 403);
-      const body = await c.req.json().catch(() => ({}));
-      const email =
-        typeof body?.email === "string" ? body.email.trim().toLowerCase() : null;
-      const ttlDays = typeof body?.ttlDays === "number" ? body.ttlDays : 7;
-      const id = randomBytes(16).toString("hex");
-      const token = randomBytes(24).toString("base64url");
-      const now = Math.floor(Date.now() / 1000);
-      await db.insert(invites).values({
-        id,
-        token,
-        email,
-        createdBy: user.id,
-        usedAt: null,
-        createdAt: now,
-        expiresAt: now + ttlDays * 86400,
-      });
-      return c.json(
-        { id, token, email, expiresAt: now + ttlDays * 86400 },
-        201,
-      );
-    }),
+    "/admin/allowed-emails",
+    authed
+      .get("/", async (c) => {
+        const user = c.get("user");
+        if (!user.isAdmin) return c.json({ error: "admin only" }, 403);
+        const rows = await db.select().from(allowedEmails);
+        return c.json(rows);
+      })
+      .post("/", async (c) => {
+        const user = c.get("user");
+        if (!user.isAdmin) return c.json({ error: "admin only" }, 403);
+        const body = await c.req.json().catch(() => null);
+        if (
+          !body ||
+          typeof body.email !== "string" ||
+          typeof body.name !== "string"
+        ) {
+          return c.json({ error: "email and name required" }, 400);
+        }
+        const email = body.email.trim().toLowerCase();
+        const name = body.name.trim();
+        const isAdmin = Boolean(body.isAdmin);
+
+        const existingUser = await db
+          .select()
+          .from(users)
+          .where(eq(users.email, email))
+          .limit(1);
+        if (existingUser.length) {
+          return c.json({ error: "already a user" }, 409);
+        }
+        await db
+          .insert(allowedEmails)
+          .values({
+            email,
+            name,
+            isAdmin,
+            addedBy: user.id,
+            addedAt: Math.floor(Date.now() / 1000),
+          })
+          .onConflictDoUpdate({
+            target: allowedEmails.email,
+            set: { name, isAdmin, addedBy: user.id },
+          });
+        return c.json({ email, name, isAdmin }, 201);
+      })
+      .delete("/:email", async (c) => {
+        const user = c.get("user");
+        if (!user.isAdmin) return c.json({ error: "admin only" }, 403);
+        const email = decodeURIComponent(c.req.param("email")).toLowerCase();
+        await db.delete(allowedEmails).where(eq(allowedEmails.email, email));
+        return c.json({ ok: true });
+      }),
   );
 
   app.route(

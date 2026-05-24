@@ -9,7 +9,6 @@ import {
 export const users = sqliteTable("users", {
   id: text("id").primaryKey(),
   email: text("email").notNull().unique(),
-  passwordHash: text("password_hash").notNull(),
   name: text("name").notNull(),
   isAdmin: integer("is_admin", { mode: "boolean" }).notNull().default(false),
   createdAt: integer("created_at").notNull(),
@@ -27,17 +26,27 @@ export const sessions = sqliteTable(
   (t) => [index("sessions_user_id_idx").on(t.userId)],
 );
 
-export const invites = sqliteTable("invites", {
-  id: text("id").primaryKey(),
-  token: text("token").notNull().unique(),
-  email: text("email"),
-  createdBy: text("created_by")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  usedAt: integer("used_at"),
-  expiresAt: integer("expires_at").notNull(),
-  createdAt: integer("created_at").notNull(),
+export const allowedEmails = sqliteTable("allowed_emails", {
+  email: text("email").primaryKey(),
+  name: text("name").notNull(),
+  isAdmin: integer("is_admin", { mode: "boolean" }).notNull().default(false),
+  addedBy: text("added_by").references(() => users.id, { onDelete: "set null" }),
+  addedAt: integer("added_at").notNull(),
 });
+
+export const emailCodes = sqliteTable(
+  "email_codes",
+  {
+    id: text("id").primaryKey(),
+    email: text("email").notNull(),
+    codeHash: text("code_hash").notNull().unique(),
+    createdAt: integer("created_at").notNull(),
+    expiresAt: integer("expires_at").notNull(),
+    usedAt: integer("used_at"),
+    attempts: integer("attempts").notNull().default(0),
+  },
+  (t) => [index("email_codes_email_idx").on(t.email)],
+);
 
 export const photos = sqliteTable(
   "photos",
@@ -69,6 +78,7 @@ export const photos = sqliteTable(
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Session = typeof sessions.$inferSelect;
-export type Invite = typeof invites.$inferSelect;
+export type AllowedEmail = typeof allowedEmails.$inferSelect;
+export type EmailCode = typeof emailCodes.$inferSelect;
 export type Photo = typeof photos.$inferSelect;
 export type NewPhoto = typeof photos.$inferInsert;

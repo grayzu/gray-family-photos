@@ -49,7 +49,7 @@ Vercel entirely.
 | Backend | Hono on Vercel Functions (Node.js) |
 | DB | Turso (libSQL) + Drizzle ORM |
 | Storage | Cloudflare R2 via `@aws-sdk/client-s3` (S3-compatible) |
-| Auth | Session-based, hand-rolled with `@oslojs/crypto` |
+| Auth | Email one-time code (OTP) via Resend |
 | EXIF | `exifr` |
 | Image processing | `sharp` (thumbnails only, originals untouched) |
 | Geocoding | Nominatim (OSM) - rate-limit 1 req/sec, must set User-Agent |
@@ -133,6 +133,12 @@ R2_PUBLIC_BASE_URL=https://photos.example.com   # custom domain CNAME'd to bucke
 
 NOMINATIM_USER_AGENT=gray-family-photos/1.0 (mark@grayszone.com)
 SESSION_SECRET=...              # 32-byte random hex
+
+# Resend (email OTP delivery) - sign up at resend.com (free 3000/mo)
+# Optional locally: if unset, codes are printed to the API server console
+RESEND_API_KEY=re_xxx
+# Optional: defaults to "Gray Family Photos <onboarding@resend.dev>"
+RESEND_FROM_EMAIL=Gray Family Photos <noreply@yourdomain.com>
 ```
 
 ### 0.4 External account setup (one-time)
@@ -171,11 +177,14 @@ the same base URL. Phase-specific specs live under
 File: `server/db/schema.ts`
 
 ```ts
-users         (id TEXT PK, email TEXT UNIQUE, password_hash TEXT, name TEXT,
+users         (id TEXT PK, email TEXT UNIQUE, name TEXT,
                is_admin INTEGER, created_at INTEGER)
 sessions      (id TEXT PK, user_id TEXT FK, expires_at INTEGER)
-invites       (id TEXT PK, token TEXT UNIQUE, email TEXT, created_by TEXT FK,
-               used_at INTEGER NULL, expires_at INTEGER)
+allowed_emails (email TEXT PK, name TEXT, is_admin INTEGER,
+                added_by TEXT FK, added_at INTEGER)
+email_codes   (id TEXT PK, email TEXT, code_hash TEXT UNIQUE,
+               created_at INTEGER, expires_at INTEGER,
+               used_at INTEGER NULL, attempts INTEGER DEFAULT 0)
 photos        (id TEXT PK, user_id TEXT FK,
                r2_original_key TEXT, r2_thumbnail_key TEXT,
                -- Public URL = `${R2_PUBLIC_BASE_URL}/${r2_original_key}`
@@ -193,35 +202,41 @@ photos        (id TEXT PK, user_id TEXT FK,
 |---|---|
 | `server/db/client.ts` | libSQL client + drizzle instance |
 | `server/db/schema.ts` | Drizzle schema (tables above) |
-| `server/auth.ts` | Lucia setup, session helpers |
+| `server/auth.ts` | Session helpers + OTP code generation/verification |
+| `server/email.ts` | Resend client (with console-log fallback for dev) |
 | `server/storage.ts` | R2 client (`@aws-sdk/client-s3`) helpers: `putOriginal`, `putThumbnail`, `deleteObject`, `presignUpload` |
 | `api/index.ts` | Hono app entry mounted at `/api/*` |
-| `api/auth/signup.ts` | POST signup (consumes invite token) |
+| `api/auth/request-code.ts` | POST email → email a 6-digit code (silent if email unknown) |
+| `api/auth/verify-code.ts` | POST email+code → create user if first time, set session cookie |
 | `api/auth/login.ts` | POST login |
 | `api/auth/logout.ts` | POST logout |
 | `api/auth/me.ts` | GET current user |
-| `api/invites.ts` | POST create invite (admin only) |
+| `api/admin/allowed-emails.ts` | GET list / POST add / DELETE remove (admin only) |
 | `api/photos/upload.ts` | POST upload single photo |
 | `api/photos/index.ts` | GET list user's photos |
 | `src/router/index.ts` | Routes: `/login`, `/signup`, `/`, `/upload` |
 | `src/stores/auth.ts` | Pinia auth store |
-| `src/views/Login.vue`, `Signup.vue`, `Home.vue`, `Upload.vue` | Pages |
+| `src/views/Login.vue` (two-stage: email → code), `Home.vue`, `Upload.vue` | Pages |
 | `src/components/PhotoGrid.vue` | Reusable photo grid |
 
 ### 1.3 Admin bootstrap rule
 
-First successful signup (when `users` table is empty) → `is_admin=1`. No
-invite token required for the very first user. All subsequent signups require
-valid invite token.
+If both `users` and `allowed_emails` are empty, the very first email to
+request a code is automatically allowed AND created as an admin user.
+After that, only emails in `users` or `allowed_emails` can request codes
+(the API silently no-ops for unknown emails to avoid leaking who is a
+member).
 
 ### 1.4 Phase 1 QA
 
 | # | Scenario | Tool | Steps | Expected |
 |---|---|---|---|---|
-| QA-1.1 | First-user bootstrap | curl | `POST /api/auth/signup` with email+password, no token | 200, user created with `is_admin=1` |
-| QA-1.2 | Signup without invite blocked | curl | Second `POST /api/auth/signup` without token | 403 "invite required" |
-| QA-1.3 | Admin creates invite | curl | Admin session → `POST /api/invites` | 201, returns invite token |
-| QA-1.4 | Invited signup succeeds | curl | `POST /api/auth/signup` with valid token | 200, user created, invite marked used |
+| QA-1.1 | First-email bootstrap (admin) | curl | `POST /api/auth/request-code` then `POST /api/auth/verify-code` with returned code (or env-injected for tests) | 200, user created with `is_admin=1`, session cookie set |
+| QA-1.2 | Unknown email silently no-ops | curl | `POST /api/auth/request-code {email: random@example.com}` (when users non-empty) | 200 with generic ok message, no row in `email_codes`, no email sent |
+| QA-1.3 | Admin adds allowed email | curl | Admin session → `POST /api/admin/allowed-emails {email, name}` | 201, row added |
+| QA-1.4 | Allowed email completes login | curl | `POST /api/auth/request-code` then verify with received code | 200, user row created from `allowed_emails`, allowlist row deleted |
+| QA-1.4b | Wrong code rejected | curl | `POST /api/auth/verify-code` with bad code | 401, attempts counter incremented |
+| QA-1.4c | Code locks after 5 wrong attempts | curl | 5 wrong attempts | code invalidated, must request new one |
 | QA-1.5 | Login works | Playwright | Navigate `/login`, fill creds, submit | Redirected to `/`, session cookie set |
 | QA-1.6 | Logout works | Playwright | Click logout | Redirected to `/login`, cookie cleared |
 | QA-1.7 | Photo upload | Playwright | Drag a JPEG with EXIF on `/upload` | Photo appears in `/` grid, row in DB, object in R2 (visible via `R2_PUBLIC_BASE_URL`) |
@@ -360,6 +375,41 @@ a deployed Vercel preview environment:
 
 ---
 
+## Auth Flow (Email OTP)
+
+```
+┌────────────┐  email     ┌─────────────┐  6-digit code (Resend)   ┌─────────┐
+│ /login UI  │ ──────────▶│ /api/auth/  │ ───────────────────────▶ │ Inbox   │
+│ (stage 1)  │            │ request-code│                          └─────────┘
+└────────────┘            └─────────────┘                              │
+                                                                       │ types code
+                                                                       ▼
+┌────────────┐  code      ┌─────────────┐
+│ /login UI  │ ──────────▶│ /api/auth/  │ ── creates user (first time)
+│ (stage 2)  │            │ verify-code │ ── sets session cookie
+└────────────┘            └─────────────┘ ── 302 / redirect to /
+```
+
+**request-code** logic:
+1. If email is in `users` → issue code
+2. Else if email is in `allowed_emails` → issue code
+3. Else if `users` AND `allowed_emails` are both empty (bootstrap) → add email
+   to `allowed_emails` (admin), issue code
+4. Else (unknown email) → silently return `{ok: true}` (no leak, no email,
+   no DB write)
+
+Always responds the same way (~150ms) regardless of branch taken, so a
+caller can't distinguish unknown from known emails.
+
+**verify-code** logic:
+1. Look up `email_codes` row by `(email, code_hash)` where `used_at IS NULL`
+   and `expires_at > now`
+2. If not found → increment any matching `email` rows' `attempts`; if
+   `attempts >= 5`, mark code `used_at = now` (invalidated). Return 401.
+3. If found → mark `used_at = now`. If user doesn't exist yet, copy from
+   `allowed_emails` to `users` and delete the allowlist row. Set session
+   cookie. Return user info.
+
 ## Project Structure (final state)
 
 ```
@@ -367,11 +417,12 @@ family_photo/
 ├── api/
 │   ├── index.ts                # Hono entry
 │   ├── auth/
-│   │   ├── signup.ts
-│   │   ├── login.ts
+│   │   ├── request-code.ts
+│   │   ├── verify-code.ts
 │   │   ├── logout.ts
 │   │   └── me.ts
-│   ├── invites.ts
+│   ├── admin/
+│   │   └── allowed-emails.ts
 │   ├── photos/
 │   │   ├── upload.ts
 │   │   ├── index.ts
@@ -391,7 +442,6 @@ family_photo/
 │   ├── lib/exif.ts
 │   ├── views/
 │   │   ├── Login.vue
-│   │   ├── Signup.vue
 │   │   ├── Home.vue
 │   │   ├── Upload.vue
 │   │   ├── Albums.vue
@@ -435,7 +485,18 @@ family_photo/
    that one photo. Album/grid listings are still auth-gated in our DB - only
    share-link recipients get the URLs. Acceptable for family-photo threat
    model.
-5. **EXIF orientation**: `sharp` thumbnail pipeline must call `.rotate()` to
+5. **OTP brute-force resistance**: 6-digit codes have only 1M possibilities,
+   so brute-force is feasible without rate limiting. Mitigations:
+   - Each code is hashed (SHA-256) before storage; raw code only exists in
+     the email
+   - Codes expire in 15 minutes
+   - `attempts` counter per code; code is invalidated after 5 wrong attempts
+   - Unknown emails get a generic success response (no leak about who's a
+     member) but no code is sent or stored
+6. **Email deliverability**: Resend's default sender (`onboarding@resend.dev`)
+   works for dev/testing. For production, configure a custom domain in
+   Resend to avoid spam filters - set `RESEND_FROM_EMAIL` accordingly.
+7. **EXIF orientation**: `sharp` thumbnail pipeline must call `.rotate()` to
    bake in orientation before resize.
 6. **Originals unmodified**: Uploaded bytes are sent to R2 unchanged - EXIF
    preserved exactly.
@@ -447,6 +508,8 @@ family_photo/
 ## Open Items Before Implementation
 
 - Project name for `package.json`: **`gray-family-photos`**
-- Email delivery for invites: **manual** (admin copy-pastes invite link to
-  family member; no Resend / SMTP integration)
+- Email delivery for sign-in: **Resend** (free tier 3000/mo). Admin adds
+  family-member email + name to allowlist in the admin panel; family member
+  goes to /login, types email, receives a 6-digit code, types it in. No
+  passwords, no manual link copy-paste.
 - Initial admin email for Phase 1 bootstrap: **`mark@grayszone.com`**

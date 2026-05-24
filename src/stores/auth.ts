@@ -26,38 +26,53 @@ export const useAuthStore = defineStore("auth", () => {
     loaded.value = true;
   }
 
-  async function login(email: string, password: string) {
-    const res = await fetch("/api/auth/login", {
+  async function requestCode(email: string) {
+    const res = await fetch("/api/auth/request-code", {
       method: "POST",
       credentials: "include",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email }),
     });
     if (!res.ok) {
       const err = (await res.json().catch(() => ({}))) as { error?: string };
-      throw new Error(err.error ?? "login failed");
+      throw new Error(err.error ?? "request failed");
     }
-    user.value = (await res.json()) as Me;
   }
 
-  async function signup(input: { email: string; password: string; name: string; invite?: string }) {
-    const res = await fetch("/api/auth/signup", {
+  async function verifyCode(email: string, code: string) {
+    const res = await fetch("/api/auth/verify-code", {
       method: "POST",
       credentials: "include",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(input),
+      body: JSON.stringify({ email, code }),
     });
     if (!res.ok) {
       const err = (await res.json().catch(() => ({}))) as { error?: string };
-      throw new Error(err.error ?? "signup failed");
+      const reason = err.error;
+      if (reason === "locked") {
+        throw new Error("Too many wrong attempts. Request a new code.");
+      }
+      throw new Error("That code didn't match. Please try again.");
     }
     user.value = (await res.json()) as Me;
   }
 
   async function logout() {
-    await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+    await fetch("/api/auth/logout", {
+      method: "POST",
+      credentials: "include",
+    });
     user.value = null;
   }
 
-  return { user, loaded, isAuthenticated, isAdmin, fetchMe, login, signup, logout };
+  return {
+    user,
+    loaded,
+    isAuthenticated,
+    isAdmin,
+    fetchMe,
+    requestCode,
+    verifyCode,
+    logout,
+  };
 });

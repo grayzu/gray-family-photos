@@ -13,7 +13,7 @@ photo storage (zero egress fees).
 - Hono on Vercel Functions (Node.js)
 - Turso (libSQL) + Drizzle ORM (metadata only)
 - Cloudflare R2 via `@aws-sdk/client-s3` (originals + thumbnails)
-- Session-based auth (hand-rolled with `@oslojs/crypto`)
+- Email one-time code (OTP) auth via Resend (`@oslojs/crypto` for sessions)
 - `exifr` for EXIF, `sharp` for thumbnails
 - Nominatim (OpenStreetMap) for geocoding
 
@@ -54,16 +54,19 @@ photo storage (zero egress fees).
 
 ## First-time admin bootstrap
 
-The first signup (when the `users` table is empty) creates the admin account
-with no invite token required. Subsequent signups require an invite token.
+If both `users` and `allowed_emails` tables are empty, the first email to
+request a sign-in code is automatically added to the allowlist as admin.
+After that, only emails in `users` or `allowed_emails` can sign in
+(unknown emails get a silent OK with no email sent).
 
 Initial admin email: `mark@grayszone.com`
 
 ## Sharing invites
 
-Invites are manual: the admin creates an invite from the admin panel, then
-copies the generated signup link and shares it with the family member
-directly. No automated email delivery is configured.
+Admins go to `/admin` to add a family member's email + name to the
+allowlist. The family member visits `/login`, enters their email,
+receives a 6-digit code, and types it in. First sign-in creates their
+account from the allowlist entry.
 
 ## Deployment
 
@@ -84,3 +87,5 @@ Required env vars in Vercel project settings:
 - `R2_PUBLIC_BASE_URL`
 - `NOMINATIM_USER_AGENT`
 - `SESSION_SECRET`
+- `RESEND_API_KEY` (optional locally; required in prod for real email)
+- `RESEND_FROM_EMAIL` (optional; defaults to onboarding@resend.dev)

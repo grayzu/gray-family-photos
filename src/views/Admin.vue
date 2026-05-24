@@ -1,78 +1,136 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, onMounted } from "vue";
 
-type Invite = { id: string; token: string; email: string | null; expiresAt: number };
+type AllowedEmail = {
+  email: string;
+  name: string;
+  isAdmin: boolean;
+  addedAt: number;
+};
 
-const email = ref("");
-const created = ref<Invite | null>(null);
+const list = ref<AllowedEmail[]>([]);
+const loading = ref(true);
 const error = ref<string | null>(null);
+
+const newEmail = ref("");
+const newName = ref("");
+const newIsAdmin = ref(false);
 const submitting = ref(false);
 
-async function create() {
+async function refresh() {
+  loading.value = true;
+  try {
+    const res = await fetch("/api/admin/allowed-emails", { credentials: "include" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    list.value = (await res.json()) as AllowedEmail[];
+  } catch (e: unknown) {
+    error.value = e instanceof Error ? e.message : "load failed";
+  } finally {
+    loading.value = false;
+  }
+}
+
+async function add() {
   error.value = null;
   submitting.value = true;
   try {
-    const res = await fetch("/api/invites", {
+    const res = await fetch("/api/admin/allowed-emails", {
       method: "POST",
       credentials: "include",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email: email.value || null }),
+      body: JSON.stringify({
+        email: newEmail.value,
+        name: newName.value,
+        isAdmin: newIsAdmin.value,
+      }),
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    created.value = (await res.json()) as Invite;
-    email.value = "";
+    if (!res.ok) {
+      const err = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(err.error ?? `HTTP ${res.status}`);
+    }
+    newEmail.value = "";
+    newName.value = "";
+    newIsAdmin.value = false;
+    await refresh();
   } catch (e: unknown) {
-    error.value = e instanceof Error ? e.message : "create failed";
+    error.value = e instanceof Error ? e.message : "add failed";
   } finally {
     submitting.value = false;
   }
 }
 
-const signupLink = (token: string) => `${window.location.origin}/signup?token=${token}`;
-
-async function copyLink() {
-  if (!created.value) return;
-  await navigator.clipboard.writeText(signupLink(created.value.token));
+async function remove(email: string) {
+  if (!confirm(`Remove ${email} from the allowlist?`)) return;
+  await fetch(`/api/admin/allowed-emails/${encodeURIComponent(email)}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  await refresh();
 }
+
+onMounted(refresh);
 </script>
 
 <template>
-  <div class="max-w-lg mx-auto bg-white p-6 rounded-lg shadow border border-slate-200">
-    <h1 class="text-xl font-semibold mb-4">Create invite</h1>
-    <form @submit.prevent="create" class="space-y-3">
-      <label class="block">
-        <span class="text-sm text-slate-600">Email (optional, for your records)</span>
-        <input
-          v-model="email"
-          type="email"
-          class="mt-1 block w-full rounded border-slate-300 border px-3 py-2"
-        />
-      </label>
-      <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
-      <button
-        type="submit"
-        :disabled="submitting"
-        class="w-full bg-slate-900 text-white rounded py-2 disabled:opacity-50"
-      >
-        Generate invite
-      </button>
-    </form>
-
-    <div v-if="created" class="mt-6 border-t border-slate-200 pt-4">
-      <p class="text-sm text-slate-600 mb-2">Send this link to the invitee:</p>
-      <div class="flex gap-2">
-        <input
-          readonly
-          :value="signupLink(created.token)"
-          class="flex-1 font-mono text-xs px-2 py-1 border border-slate-300 rounded"
-        />
-        <button @click="copyLink" class="px-3 py-1 text-sm border border-slate-300 rounded">
-          Copy
-        </button>
-      </div>
-      <p class="text-xs text-slate-500 mt-2">
-        Expires {{ new Date(created.expiresAt * 1000).toLocaleString() }}
+  <div class="max-w-2xl mx-auto space-y-6">
+    <div class="bg-white p-6 rounded-lg shadow border border-slate-200">
+      <h1 class="text-xl font-semibold mb-2">Invite family member</h1>
+      <p class="text-sm text-slate-500 mb-4">
+        Adding an email to the allowlist lets that person sign in with a code
+        sent to their inbox. The first time they sign in, an account is
+        created automatically.
       </p>
+      <form @submit.prevent="add" class="space-y-3">
+        <label class="block">
+          <span class="text-sm text-slate-600">Email</span>
+          <input
+            v-model="newEmail"
+            type="email"
+            required
+            class="mt-1 block w-full rounded border-slate-300 border px-3 py-2"
+          />
+        </label>
+        <label class="block">
+          <span class="text-sm text-slate-600">Name</span>
+          <input
+            v-model="newName"
+            type="text"
+            required
+            class="mt-1 block w-full rounded border-slate-300 border px-3 py-2"
+          />
+        </label>
+        <label class="flex items-center gap-2 text-sm">
+          <input v-model="newIsAdmin" type="checkbox" />
+          <span>Grant admin access (can manage allowlist)</span>
+        </label>
+        <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
+        <button
+          type="submit"
+          :disabled="submitting"
+          class="w-full bg-slate-900 text-white rounded py-2 disabled:opacity-50"
+        >
+          Add
+        </button>
+      </form>
+    </div>
+
+    <div class="bg-white p-6 rounded-lg shadow border border-slate-200">
+      <h2 class="text-lg font-semibold mb-3">Allowlist (pending first sign-in)</h2>
+      <p v-if="loading" class="text-slate-500">Loading...</p>
+      <p v-else-if="list.length === 0" class="text-slate-500">
+        No pending invitations.
+      </p>
+      <ul v-else class="divide-y divide-slate-200">
+        <li v-for="row in list" :key="row.email" class="py-3 flex items-center justify-between">
+          <div>
+            <div class="font-medium">{{ row.name }}</div>
+            <div class="text-sm text-slate-500">{{ row.email }}<span v-if="row.isAdmin" class="ml-2 text-xs text-slate-400">admin</span></div>
+          </div>
+          <button @click="remove(row.email)" class="text-sm text-red-600 underline">
+            Remove
+          </button>
+        </li>
+      </ul>
     </div>
   </div>
 </template>

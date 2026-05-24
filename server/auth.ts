@@ -1,45 +1,196 @@
-import { eq } from "drizzle-orm";
-import { encodeHexLowerCase, encodeBase32LowerCaseNoPadding } from "@oslojs/encoding";
+import { and, eq, gte, isNull, sql } from "drizzle-orm";
+import {
+  encodeHexLowerCase,
+  encodeBase32LowerCaseNoPadding,
+} from "@oslojs/encoding";
 import { sha256 } from "@oslojs/crypto/sha2";
+import { randomBytes, randomInt } from "node:crypto";
 import { db } from "./db/client.js";
-import { sessions, users, type User } from "./db/schema.js";
-import { randomBytes, pbkdf2Sync, timingSafeEqual } from "node:crypto";
+import {
+  sessions,
+  users,
+  emailCodes,
+  allowedEmails,
+  type User,
+} from "./db/schema.js";
 
 const SESSION_COOKIE = "session";
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
-const PBKDF2_ITERATIONS = 100_000;
-const PBKDF2_KEYLEN = 32;
-const PBKDF2_DIGEST = "sha256";
 
-export function hashPassword(password: string): string {
-  const salt = randomBytes(16);
-  const hash = pbkdf2Sync(
-    password,
-    salt,
-    PBKDF2_ITERATIONS,
-    PBKDF2_KEYLEN,
-    PBKDF2_DIGEST,
-  );
-  return `pbkdf2$${PBKDF2_ITERATIONS}$${salt.toString("hex")}$${hash.toString("hex")}`;
+const CODE_TTL_SEC = 60 * 15;
+const CODE_MAX_ATTEMPTS = 5;
+
+function hashString(s: string): string {
+  return encodeHexLowerCase(sha256(new TextEncoder().encode(s)));
 }
 
-export function verifyPassword(password: string, stored: string): boolean {
-  const parts = stored.split("$");
-  if (parts.length !== 4 || parts[0] !== "pbkdf2") return false;
-  const iters = Number.parseInt(parts[1]!, 10);
-  const salt = Buffer.from(parts[2]!, "hex");
-  const expected = Buffer.from(parts[3]!, "hex");
-  const got = pbkdf2Sync(password, salt, iters, expected.length, PBKDF2_DIGEST);
-  return got.length === expected.length && timingSafeEqual(got, expected);
+function generateNumericCode(): string {
+  return String(randomInt(0, 1_000_000)).padStart(6, "0");
+}
+
+export async function issueLoginCode(
+  emailRaw: string,
+): Promise<{ code: string; name: string | null } | null> {
+  const email = emailRaw.trim().toLowerCase();
+  if (!email) return null;
+
+  const userRows = await db
+    .select()
+    .from(users)
+    .where(eq(users.email, email))
+    .limit(1);
+  let name: string | null = userRows[0]?.name ?? null;
+  let allowed = userRows.length > 0;
+
+  if (!allowed) {
+    const allowedRows = await db
+      .select()
+      .from(allowedEmails)
+      .where(eq(allowedEmails.email, email))
+      .limit(1);
+    if (allowedRows.length > 0) {
+      allowed = true;
+      name = allowedRows[0]!.name;
+    }
+  }
+
+  if (!allowed) {
+    const isBootstrap = await isEmptyAuthDb();
+    if (isBootstrap) {
+      await db.insert(allowedEmails).values({
+        email,
+        name: email.split("@")[0]!,
+        isAdmin: true,
+        addedBy: null,
+        addedAt: Math.floor(Date.now() / 1000),
+      });
+      name = email.split("@")[0]!;
+      allowed = true;
+    }
+  }
+
+  if (!allowed) return null;
+
+  const code = generateNumericCode();
+  const now = Math.floor(Date.now() / 1000);
+
+  await db
+    .update(emailCodes)
+    .set({ usedAt: now })
+    .where(and(eq(emailCodes.email, email), isNull(emailCodes.usedAt)));
+
+  await db.insert(emailCodes).values({
+    id: randomBytes(16).toString("hex"),
+    email,
+    codeHash: hashString(`${email}:${code}`),
+    createdAt: now,
+    expiresAt: now + CODE_TTL_SEC,
+    usedAt: null,
+    attempts: 0,
+  });
+
+  return { code, name };
+}
+
+async function isEmptyAuthDb(): Promise<boolean> {
+  const userCount = await db.select({ n: sql<number>`count(*)` }).from(users);
+  const allowCount = await db
+    .select({ n: sql<number>`count(*)` })
+    .from(allowedEmails);
+  return Number(userCount[0]?.n ?? 0) === 0 && Number(allowCount[0]?.n ?? 0) === 0;
+}
+
+export type VerifyResult =
+  | { ok: true; user: User }
+  | { ok: false; reason: "invalid" | "expired" | "locked" };
+
+export async function verifyLoginCode(
+  emailRaw: string,
+  code: string,
+): Promise<VerifyResult> {
+  const email = emailRaw.trim().toLowerCase();
+  const codeHash = hashString(`${email}:${code}`);
+  const now = Math.floor(Date.now() / 1000);
+
+  const rows = await db
+    .select()
+    .from(emailCodes)
+    .where(
+      and(
+        eq(emailCodes.email, email),
+        eq(emailCodes.codeHash, codeHash),
+        isNull(emailCodes.usedAt),
+        gte(emailCodes.expiresAt, now),
+      ),
+    )
+    .limit(1);
+  const match = rows[0];
+
+  if (!match) {
+    await db
+      .update(emailCodes)
+      .set({ attempts: sql`${emailCodes.attempts} + 1` })
+      .where(
+        and(
+          eq(emailCodes.email, email),
+          isNull(emailCodes.usedAt),
+          gte(emailCodes.expiresAt, now),
+        ),
+      );
+    await db
+      .update(emailCodes)
+      .set({ usedAt: now })
+      .where(
+        and(
+          eq(emailCodes.email, email),
+          isNull(emailCodes.usedAt),
+          gte(emailCodes.attempts, CODE_MAX_ATTEMPTS),
+        ),
+      );
+    return { ok: false, reason: "invalid" };
+  }
+
+  if (match.attempts >= CODE_MAX_ATTEMPTS) {
+    await db.update(emailCodes).set({ usedAt: now }).where(eq(emailCodes.id, match.id));
+    return { ok: false, reason: "locked" };
+  }
+
+  await db.update(emailCodes).set({ usedAt: now }).where(eq(emailCodes.id, match.id));
+
+  const existing = await db
+    .select()
+    .from(users)
+    .where(eq(users.email, email))
+    .limit(1);
+  if (existing[0]) return { ok: true, user: existing[0] };
+
+  const allowed = await db
+    .select()
+    .from(allowedEmails)
+    .where(eq(allowedEmails.email, email))
+    .limit(1);
+  if (!allowed[0]) return { ok: false, reason: "invalid" };
+
+  const id = randomBytes(16).toString("hex");
+  await db.insert(users).values({
+    id,
+    email,
+    name: allowed[0].name,
+    isAdmin: allowed[0].isAdmin,
+    createdAt: now,
+  });
+  await db.delete(allowedEmails).where(eq(allowedEmails.email, email));
+
+  const created = await db.select().from(users).where(eq(users.id, id)).limit(1);
+  return { ok: true, user: created[0]! };
 }
 
 export function generateSessionToken(): string {
-  const bytes = randomBytes(20);
-  return encodeBase32LowerCaseNoPadding(bytes);
+  return encodeBase32LowerCaseNoPadding(randomBytes(20));
 }
 
 function tokenToSessionId(token: string): string {
-  return encodeHexLowerCase(sha256(new TextEncoder().encode(token)));
+  return hashString(token);
 }
 
 export async function createSession(token: string, userId: string) {
@@ -82,14 +233,14 @@ export async function invalidateSession(token: string) {
   await db.delete(sessions).where(eq(sessions.id, id));
 }
 
-export function sessionCookieAttributes(expiresAtSec: number): string {
+function cookieAttributes(expiresAtSec: number): string {
   const expires = new Date(expiresAtSec * 1000).toUTCString();
   const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
   return `Path=/; HttpOnly; SameSite=Lax; Expires=${expires}${secure}`;
 }
 
 export function setSessionCookieHeader(token: string, expiresAtSec: number) {
-  return `${SESSION_COOKIE}=${token}; ${sessionCookieAttributes(expiresAtSec)}`;
+  return `${SESSION_COOKIE}=${token}; ${cookieAttributes(expiresAtSec)}`;
 }
 
 export function clearSessionCookieHeader() {
@@ -98,7 +249,9 @@ export function clearSessionCookieHeader() {
   return `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Expires=${expires}${secure}`;
 }
 
-export function readSessionCookie(cookieHeader: string | undefined | null): string | null {
+export function readSessionCookie(
+  cookieHeader: string | undefined | null,
+): string | null {
   if (!cookieHeader) return null;
   for (const part of cookieHeader.split(";")) {
     const [k, ...rest] = part.trim().split("=");

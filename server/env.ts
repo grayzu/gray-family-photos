@@ -10,9 +10,12 @@ const required = [
   "SESSION_SECRET",
 ] as const;
 
-type Required = (typeof required)[number];
+const optional = ["RESEND_API_KEY", "RESEND_FROM_EMAIL"] as const;
 
-function read(name: Required): string {
+type Required = (typeof required)[number];
+type Optional = (typeof optional)[number];
+
+function readRequired(name: Required): string {
   const v = process.env[name];
   if (!v || v.trim() === "") {
     throw new Error(
@@ -23,14 +26,23 @@ function read(name: Required): string {
   return v;
 }
 
+function readOptional(name: Optional): string | null {
+  const v = process.env[name];
+  return v && v.trim() !== "" ? v : null;
+}
+
 export const env = {
-  TURSO_DATABASE_URL: read("TURSO_DATABASE_URL"),
-  TURSO_AUTH_TOKEN: read("TURSO_AUTH_TOKEN"),
-  R2_ACCOUNT_ID: read("R2_ACCOUNT_ID"),
-  R2_ACCESS_KEY_ID: read("R2_ACCESS_KEY_ID"),
-  R2_SECRET_ACCESS_KEY: read("R2_SECRET_ACCESS_KEY"),
-  R2_BUCKET: read("R2_BUCKET"),
-  R2_PUBLIC_BASE_URL: read("R2_PUBLIC_BASE_URL").replace(/\/$/, ""),
-  NOMINATIM_USER_AGENT: read("NOMINATIM_USER_AGENT"),
-  SESSION_SECRET: read("SESSION_SECRET"),
+  TURSO_DATABASE_URL: readRequired("TURSO_DATABASE_URL"),
+  TURSO_AUTH_TOKEN: readRequired("TURSO_AUTH_TOKEN"),
+  R2_ACCOUNT_ID: readRequired("R2_ACCOUNT_ID"),
+  R2_ACCESS_KEY_ID: readRequired("R2_ACCESS_KEY_ID"),
+  R2_SECRET_ACCESS_KEY: readRequired("R2_SECRET_ACCESS_KEY"),
+  R2_BUCKET: readRequired("R2_BUCKET"),
+  R2_PUBLIC_BASE_URL: readRequired("R2_PUBLIC_BASE_URL").replace(/\/$/, ""),
+  NOMINATIM_USER_AGENT: readRequired("NOMINATIM_USER_AGENT"),
+  SESSION_SECRET: readRequired("SESSION_SECRET"),
+  RESEND_API_KEY: readOptional("RESEND_API_KEY"),
+  RESEND_FROM_EMAIL:
+    readOptional("RESEND_FROM_EMAIL") ??
+    "Gray Family Photos <onboarding@resend.dev>",
 };

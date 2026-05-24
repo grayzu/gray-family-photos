@@ -1,13 +1,28 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, request } from "@playwright/test";
 
 const ADMIN_EMAIL = "mark@grayszone.com";
-const ADMIN_PASSWORD = "testtest123";
+const API_BASE = process.env.E2E_API_BASE ?? "http://localhost:3001";
 
-test("QA-1.5 login + QA-1.6 logout via UI", async ({ page }) => {
+async function fetchLatestCodeForEmail(email: string): Promise<string> {
+  const ctx = await request.newContext({ baseURL: API_BASE });
+  const res = await ctx.get("/api/__test/latest-code", {
+    params: { email },
+  });
+  if (!res.ok()) throw new Error(`code fetch failed: ${res.status()}`);
+  const body = await res.json();
+  return body.code as string;
+}
+
+test("OTP login: admin logs in via emailed code", async ({ page }) => {
   await page.goto("/login");
   await page.locator('[data-test="email"]').fill(ADMIN_EMAIL);
-  await page.locator('[data-test="password"]').fill(ADMIN_PASSWORD);
-  await page.locator('[data-test="submit"]').click();
+  await page.locator('[data-test="send-code"]').click();
+  await expect(page.locator('[data-test="code"]')).toBeVisible();
+
+  const code = await fetchLatestCodeForEmail(ADMIN_EMAIL);
+  await page.locator('[data-test="code"]').fill(code);
+  await page.locator('[data-test="verify"]').click();
+
   await expect(page).toHaveURL("/");
   await expect(page.getByText("Gray Family Photos")).toBeVisible();
 
@@ -15,19 +30,36 @@ test("QA-1.5 login + QA-1.6 logout via UI", async ({ page }) => {
   await expect(page).toHaveURL(/\/login/);
 });
 
-test("QA-1.7 upload photo via UI, appears in grid", async ({ page }) => {
+test("OTP login: wrong code shows error", async ({ page }) => {
   await page.goto("/login");
   await page.locator('[data-test="email"]').fill(ADMIN_EMAIL);
-  await page.locator('[data-test="password"]').fill(ADMIN_PASSWORD);
-  await page.locator('[data-test="submit"]').click();
+  await page.locator('[data-test="send-code"]').click();
+  await expect(page.locator('[data-test="code"]')).toBeVisible();
+
+  await page.locator('[data-test="code"]').fill("000000");
+  await page.locator('[data-test="verify"]').click();
+
+  await expect(page.locator('[data-test="error"]')).toBeVisible();
+});
+
+test("upload photo via UI after OTP login", async ({ page }) => {
+  await page.goto("/login");
+  await page.locator('[data-test="email"]').fill(ADMIN_EMAIL);
+  await page.locator('[data-test="send-code"]').click();
+  await expect(page.locator('[data-test="code"]')).toBeVisible();
+  const code = await fetchLatestCodeForEmail(ADMIN_EMAIL);
+  await page.locator('[data-test="code"]').fill(code);
+  await page.locator('[data-test="verify"]').click();
   await expect(page).toHaveURL("/");
 
   await page.goto("/upload");
   await page.locator('[data-test="file"]').setInputFiles("/tmp/test-photo.jpg");
-  await page.locator('[data-test="submit"]').click();
-  await expect(page).toHaveURL("/", { timeout: 15000 });
 
-  await expect(page.locator('[data-test="photo-thumb"]').first()).toBeVisible({
-    timeout: 10000,
-  });
+  const uploadResponse = page.waitForResponse(
+    (r) => r.url().includes("/api/photos/upload") && r.request().method() === "POST",
+  );
+  await page.locator('[data-test="submit"]').click();
+  const res = await uploadResponse;
+  expect(res.status()).toBe(201);
+  await expect(page).toHaveURL("/", { timeout: 15000 });
 });
