@@ -49,21 +49,21 @@ onMounted(load);
 <template>
   <div>
     <div class="flex items-center justify-between mb-6">
-      <h1 class="text-2xl font-semibold">Albums</h1>
-      <RouterLink to="/upload" class="bg-slate-900 text-white px-4 py-2 rounded text-sm">
+      <h1 class="text-2xl font-semibold text-text-primary">Albums</h1>
+      <RouterLink to="/upload" class="bg-accent hover:bg-accent-hover text-base font-medium px-4 py-2 rounded text-sm transition-colors">
         Upload
       </RouterLink>
     </div>
 
-    <p v-if="loading" class="text-slate-500">Loading...</p>
-    <p v-else-if="error" class="text-red-600" data-test="error">{{ error }}</p>
-    <p v-else-if="albums.length === 0" class="text-slate-500" data-test="empty">
+    <p v-if="loading" class="text-text-muted">Loading...</p>
+    <p v-else-if="error" class="text-coral" data-test="error">{{ error }}</p>
+    <p v-else-if="albums.length === 0" class="text-text-muted" data-test="empty">
       No albums yet.
-      <RouterLink to="/upload" class="underline">Upload a photo</RouterLink> to start.
+      <RouterLink to="/upload" class="text-accent hover:underline">Upload a photo</RouterLink> to start.
     </p>
     <div v-else class="space-y-8">
       <section v-for="[year, group] in grouped" :key="year">
-        <h2 class="text-lg font-semibold mb-3 text-slate-600">{{ year }}</h2>
+        <h2 class="text-lg font-semibold mb-3 text-text-muted">{{ year }}</h2>
         <div data-test="album-grid" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
           <RouterLink
             v-for="album in group"
@@ -72,21 +72,21 @@ onMounted(load);
             class="block group"
             data-test="album-card"
           >
-            <div class="aspect-square bg-slate-200 rounded overflow-hidden">
+            <div class="aspect-square bg-surface-2 rounded-lg overflow-hidden border border-border-subtle group-hover:border-accent transition-all group-hover:shadow-lg group-hover:shadow-accent/10 group-hover:scale-[1.02]">
               <img
                 v-if="album.coverUrl"
                 :src="album.coverUrl"
                 :alt="album.name"
                 loading="lazy"
-                class="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                class="w-full h-full object-cover"
               />
-              <div v-else class="w-full h-full flex items-center justify-center text-slate-400">
+              <div v-else class="w-full h-full flex items-center justify-center text-text-muted text-sm">
                 No photo
               </div>
             </div>
             <div class="mt-2">
-              <div class="text-sm font-medium truncate">{{ album.name }}</div>
-              <div class="text-xs text-slate-500">{{ album.photoCount }} photo{{ album.photoCount === 1 ? "" : "s" }}</div>
+              <div class="text-sm font-medium truncate text-text-primary">{{ album.name }}</div>
+              <div class="text-xs text-text-muted">{{ album.photoCount }} photo{{ album.photoCount === 1 ? "" : "s" }}</div>
             </div>
           </RouterLink>
         </div>

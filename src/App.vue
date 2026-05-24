@@ -17,18 +17,37 @@ async function handleLogout() {
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-50 text-slate-900">
-    <header v-if="auth.isAuthenticated" class="border-b border-slate-200 bg-white">
+  <div class="min-h-screen bg-base text-text-primary">
+    <header v-if="auth.isAuthenticated" class="border-b border-border-subtle bg-surface">
       <nav class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-        <RouterLink to="/" class="font-semibold text-lg">Gray Family Photos</RouterLink>
+        <RouterLink to="/" class="font-semibold text-lg text-accent">Gray Family Photos</RouterLink>
         <div class="flex items-center gap-4 text-sm">
-          <RouterLink to="/" class="hover:underline">Albums</RouterLink>
-          <RouterLink to="/upload" class="hover:underline">Upload</RouterLink>
-          <RouterLink v-if="auth.isAdmin" to="/admin" class="hover:underline">Admin</RouterLink>
-          <span class="text-slate-500">{{ auth.user?.name }}</span>
+          <RouterLink
+            to="/"
+            class="text-text-muted hover:text-text-primary"
+            active-class="text-text-primary"
+          >
+            Albums
+          </RouterLink>
+          <RouterLink
+            to="/upload"
+            class="text-text-muted hover:text-text-primary"
+            active-class="text-text-primary"
+          >
+            Upload
+          </RouterLink>
+          <RouterLink
+            v-if="auth.isAdmin"
+            to="/admin"
+            class="text-text-muted hover:text-text-primary"
+            active-class="text-text-primary"
+          >
+            Admin
+          </RouterLink>
+          <span class="text-text-muted">{{ auth.user?.name }}</span>
           <button
             data-test="logout"
-            class="text-slate-700 hover:text-slate-900 underline"
+            class="text-text-muted hover:text-accent"
             @click="handleLogout"
           >
             Logout

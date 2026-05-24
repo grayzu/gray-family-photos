@@ -94,12 +94,12 @@ function confirm() {
 <template>
   <div
     v-if="open"
-    class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+    class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
     data-test="location-modal"
   >
-    <div class="bg-white rounded-lg shadow-xl border border-slate-200 max-w-md w-full p-6">
-      <h2 class="text-lg font-semibold mb-1">Where was this taken?</h2>
-      <p class="text-sm text-slate-500 mb-4">
+    <div class="bg-surface rounded-lg shadow-xl border border-border-subtle max-w-md w-full p-6">
+      <h2 class="text-lg font-semibold mb-1 text-text-primary">Where was this taken?</h2>
+      <p class="text-sm text-text-muted mb-4">
         {{ fileName ?? "This photo" }} doesn't have location info in its EXIF
         data. Type a place name to attach a location.
       </p>
@@ -110,39 +110,39 @@ function confirm() {
         placeholder="e.g. sydney"
         autocomplete="off"
         data-test="location-input"
-        class="block w-full rounded border border-slate-300 px-3 py-2 mb-3"
+        class="block w-full rounded bg-surface-2 border border-border-subtle px-3 py-2 mb-3 text-text-primary focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
       />
 
-      <div v-if="loading" class="text-sm text-slate-500">Searching...</div>
+      <div v-if="loading" class="text-sm text-text-muted">Searching...</div>
       <div
         v-else-if="error"
-        class="text-sm text-red-600"
+        class="text-sm text-coral"
         data-test="location-error"
       >
         {{ error }}
       </div>
       <div
         v-else-if="searchedOnce && candidates.length === 0"
-        class="text-sm text-slate-500"
+        class="text-sm text-text-muted"
         data-test="no-matches"
       >
         No matches. Try a different search.
       </div>
-      <ul v-else class="max-h-56 overflow-y-auto divide-y divide-slate-100">
+      <ul v-else class="max-h-56 overflow-y-auto divide-y divide-border-subtle">
         <li v-for="c in candidates" :key="c.placeId">
           <button
             type="button"
             @click="selected = c"
             :class="[
-              'w-full text-left p-2 text-sm rounded',
+              'w-full text-left p-2 text-sm rounded transition-colors',
               selected?.placeId === c.placeId
-                ? 'bg-slate-900 text-white'
-                : 'hover:bg-slate-100',
+                ? 'bg-accent text-base'
+                : 'text-text-primary hover:bg-surface-2',
             ]"
             data-test="location-option"
           >
             <div class="font-medium">{{ c.name }}</div>
-            <div :class="['text-xs', selected?.placeId === c.placeId ? 'text-slate-300' : 'text-slate-500']">
+            <div :class="['text-xs', selected?.placeId === c.placeId ? 'text-base/70' : 'text-text-muted']">
               {{ c.display }}
             </div>
           </button>
@@ -153,7 +153,7 @@ function confirm() {
         <button
           type="button"
           @click="emit('cancel')"
-          class="px-4 py-2 text-sm text-slate-600 hover:text-slate-900"
+          class="px-4 py-2 text-sm text-text-muted hover:text-text-primary"
         >
           Cancel
         </button>
@@ -162,7 +162,7 @@ function confirm() {
           @click="confirm"
           :disabled="!selected"
           data-test="location-confirm"
-          class="px-4 py-2 text-sm bg-slate-900 text-white rounded disabled:opacity-50"
+          class="px-4 py-2 text-sm bg-accent hover:bg-accent-hover text-base font-medium rounded disabled:opacity-50 transition-colors"
         >
           Confirm
         </button>

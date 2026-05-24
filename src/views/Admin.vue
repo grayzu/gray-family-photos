@@ -73,60 +73,60 @@ onMounted(refresh);
 
 <template>
   <div class="max-w-2xl mx-auto space-y-6">
-    <div class="bg-white p-6 rounded-lg shadow border border-slate-200">
-      <h1 class="text-xl font-semibold mb-2">Invite family member</h1>
-      <p class="text-sm text-slate-500 mb-4">
+    <div class="bg-surface p-6 rounded-lg shadow border border-border-subtle">
+      <h1 class="text-xl font-semibold mb-2 text-text-primary">Invite family member</h1>
+      <p class="text-sm text-text-muted mb-4">
         Adding an email to the allowlist lets that person sign in with a code
         sent to their inbox. The first time they sign in, an account is
         created automatically.
       </p>
       <form @submit.prevent="add" class="space-y-3">
         <label class="block">
-          <span class="text-sm text-slate-600">Email</span>
+          <span class="text-sm text-text-muted">Email</span>
           <input
             v-model="newEmail"
             type="email"
             required
-            class="mt-1 block w-full rounded border-slate-300 border px-3 py-2"
+            class="mt-1 block w-full rounded bg-surface-2 border border-border-subtle px-3 py-2 text-text-primary focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
           />
         </label>
         <label class="block">
-          <span class="text-sm text-slate-600">Name</span>
+          <span class="text-sm text-text-muted">Name</span>
           <input
             v-model="newName"
             type="text"
             required
-            class="mt-1 block w-full rounded border-slate-300 border px-3 py-2"
+            class="mt-1 block w-full rounded bg-surface-2 border border-border-subtle px-3 py-2 text-text-primary focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
           />
         </label>
-        <label class="flex items-center gap-2 text-sm">
-          <input v-model="newIsAdmin" type="checkbox" />
+        <label class="flex items-center gap-2 text-sm text-text-muted">
+          <input v-model="newIsAdmin" type="checkbox" class="accent-accent" />
           <span>Grant admin access (can manage allowlist)</span>
         </label>
-        <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
+        <p v-if="error" class="text-sm text-coral">{{ error }}</p>
         <button
           type="submit"
           :disabled="submitting"
-          class="w-full bg-slate-900 text-white rounded py-2 disabled:opacity-50"
+          class="w-full bg-accent hover:bg-accent-hover text-base font-medium rounded py-2 disabled:opacity-50 transition-colors"
         >
           Add
         </button>
       </form>
     </div>
 
-    <div class="bg-white p-6 rounded-lg shadow border border-slate-200">
-      <h2 class="text-lg font-semibold mb-3">Allowlist (pending first sign-in)</h2>
-      <p v-if="loading" class="text-slate-500">Loading...</p>
-      <p v-else-if="list.length === 0" class="text-slate-500">
+    <div class="bg-surface p-6 rounded-lg shadow border border-border-subtle">
+      <h2 class="text-lg font-semibold mb-3 text-text-primary">Allowlist (pending first sign-in)</h2>
+      <p v-if="loading" class="text-text-muted">Loading...</p>
+      <p v-else-if="list.length === 0" class="text-text-muted">
         No pending invitations.
       </p>
-      <ul v-else class="divide-y divide-slate-200">
+      <ul v-else class="divide-y divide-border-subtle">
         <li v-for="row in list" :key="row.email" class="py-3 flex items-center justify-between">
           <div>
-            <div class="font-medium">{{ row.name }}</div>
-            <div class="text-sm text-slate-500">{{ row.email }}<span v-if="row.isAdmin" class="ml-2 text-xs text-slate-400">admin</span></div>
+            <div class="font-medium text-text-primary">{{ row.name }}</div>
+            <div class="text-sm text-text-muted">{{ row.email }}<span v-if="row.isAdmin" class="ml-2 text-xs text-turquoise">admin</span></div>
           </div>
-          <button @click="remove(row.email)" class="text-sm text-red-600 underline">
+          <button @click="remove(row.email)" class="text-sm text-coral hover:underline">
             Remove
           </button>
         </li>

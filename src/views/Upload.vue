@@ -124,15 +124,15 @@ function statusLabel(s: Status) {
 </script>
 
 <template>
-  <div class="max-w-2xl mx-auto bg-white p-6 rounded-lg shadow border border-slate-200">
-    <h1 class="text-xl font-semibold mb-4">Upload photos</h1>
+  <div class="max-w-2xl mx-auto bg-surface p-6 rounded-lg shadow border border-border-subtle">
+    <h1 class="text-xl font-semibold mb-4 text-text-primary">Upload photos</h1>
     <input
       data-test="files"
       type="file"
       accept="image/*"
       multiple
       @change="onSelect"
-      class="block w-full text-sm mb-4"
+      class="block w-full text-sm mb-4 text-text-primary file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-sm file:bg-accent file:text-base hover:file:bg-accent-hover file:cursor-pointer cursor-pointer"
     />
 
     <ul v-if="jobs.length > 0" class="space-y-2 mb-4">
@@ -140,15 +140,15 @@ function statusLabel(s: Status) {
         v-for="(job, i) in jobs"
         :key="i"
         data-test="upload-job"
-        class="flex items-center gap-3 text-sm border-b border-slate-100 pb-2"
+        class="flex items-center gap-3 text-sm border-b border-border-subtle pb-2"
       >
-        <span class="flex-1 truncate">{{ job.file.name }}</span>
+        <span class="flex-1 truncate text-text-primary">{{ job.file.name }}</span>
         <span
           :class="{
-            'text-slate-500': job.status === 'pending',
-            'text-amber-600': job.status === 'needs-location' || job.status === 'uploading',
-            'text-green-600': job.status === 'done',
-            'text-red-600': job.status === 'error',
+            'text-text-muted': job.status === 'pending',
+            'text-gold': job.status === 'needs-location' || job.status === 'uploading',
+            'text-lime': job.status === 'done',
+            'text-coral': job.status === 'error',
           }"
         >
           {{ statusLabel(job.status) }}
@@ -158,7 +158,7 @@ function statusLabel(s: Status) {
 
     <p
       v-if="overallProgress"
-      class="text-sm text-slate-600 mb-3"
+      class="text-sm text-text-muted mb-3"
       data-test="progress"
     >
       {{ overallProgress.done }} / {{ overallProgress.total }} processed
@@ -169,7 +169,7 @@ function statusLabel(s: Status) {
       type="button"
       :disabled="jobs.length === 0 || allDone || promptingIdx !== null"
       @click="startBatch"
-      class="w-full bg-slate-900 text-white rounded py-2 disabled:opacity-50"
+      class="w-full bg-accent hover:bg-accent-hover text-base font-medium rounded py-2 disabled:opacity-50 transition-colors"
     >
       {{ allDone ? "All done" : "Upload" }}
     </button>

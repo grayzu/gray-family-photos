@@ -410,6 +410,43 @@ caller can't distinguish unknown from known emails.
    `allowed_emails` to `users` and delete the allowlist row. Set session
    cookie. Return user info.
 
+## Theme & Visual Design
+
+**Dark background with a vibrant nature-based color palette.**
+
+Photos look their best against dark backgrounds (less retinal flare, no
+visual competition from chrome). The accent system pulls from natural
+imagery: leaf greens, dawn/sunset gold, forest moss, river turquoise.
+
+### Palette (TailwindCSS classes for reference)
+
+| Token | Hex | Use |
+|---|---|---|
+| `bg-base` | `#0d1410` | App background (deep forest floor) |
+| `bg-surface` | `#16201b` | Cards, modals, panels |
+| `bg-surface-2` | `#1e2a24` | Elevated surfaces, input fields |
+| `border-subtle` | `#2a3a32` | Dividers, card borders |
+| `text-primary` | `#ecfdf5` | Headings, body |
+| `text-muted` | `#8da99c` | Secondary text, hints |
+| `accent` (emerald) | `#34d399` | Primary CTA, links |
+| `accent-hover` | `#10b981` | Hover state |
+| `lime` | `#a3e635` | Success / done state |
+| `gold` | `#fbbf24` | Warning / pending |
+| `coral` | `#fb7185` | Destructive (delete, revoke) |
+| `turquoise` | `#5eead4` | Info, secondary highlights |
+
+### Application notes
+
+- All views use the `bg-base` page background.
+- Cards/panels/modals use `bg-surface` with `border-subtle`.
+- Form inputs use `bg-surface-2` with `border-subtle`; focus rings use
+  `accent`.
+- Primary buttons: `accent` background, dark text, hover `accent-hover`.
+- Album cards have warm hover lift (subtle shadow + scale).
+- Lightbox keeps pure-black background for max photo contrast.
+- Login screen has a subtle radial gradient (forest top-down) to add
+  depth without distracting from the form.
+
 ## Project Structure (final state)
 
 ```

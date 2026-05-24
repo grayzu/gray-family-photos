@@ -36,15 +36,15 @@ onMounted(load);
 
 <template>
   <div>
-    <p v-if="loading" class="text-slate-500">Loading...</p>
-    <p v-else-if="error" class="text-red-600 text-center mt-12" data-test="share-error">
+    <p v-if="loading" class="text-text-muted">Loading...</p>
+    <p v-else-if="error" class="text-coral text-center mt-12" data-test="share-error">
       {{ error }}
     </p>
     <div v-else-if="data">
-      <h1 class="text-2xl font-semibold mb-1" data-test="share-album-name">
+      <h1 class="text-2xl font-semibold mb-1 text-text-primary" data-test="share-album-name">
         {{ data.album.name }}
       </h1>
-      <p class="text-sm text-slate-500 mb-6">
+      <p class="text-sm text-text-muted mb-6">
         {{ data.album.locationDisplay }} · {{ data.photos.length }} photo{{ data.photos.length === 1 ? "" : "s" }}
       </p>
 
@@ -57,7 +57,7 @@ onMounted(load);
           :key="p.id"
           type="button"
           @click="lightboxIdx = i"
-          class="block aspect-square overflow-hidden rounded bg-slate-200"
+          class="block aspect-square overflow-hidden rounded bg-surface-2 border border-border-subtle hover:border-accent transition-colors"
           data-test="share-photo"
         >
           <img

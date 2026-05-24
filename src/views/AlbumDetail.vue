@@ -134,53 +134,53 @@ onMounted(load);
 
 <template>
   <div>
-    <RouterLink to="/" class="text-sm text-slate-500 hover:text-slate-900">
+    <RouterLink to="/" class="text-sm text-text-muted hover:text-accent">
       ← Albums
     </RouterLink>
 
-    <p v-if="loading" class="mt-6 text-slate-500">Loading...</p>
-    <p v-else-if="error" class="mt-6 text-red-600">{{ error }}</p>
+    <p v-if="loading" class="mt-6 text-text-muted">Loading...</p>
+    <p v-else-if="error" class="mt-6 text-coral">{{ error }}</p>
     <div v-else-if="album" class="mt-4">
       <div class="flex items-baseline justify-between mb-1">
-        <h1 class="text-2xl font-semibold" data-test="album-name">{{ album.name }}</h1>
-        <div class="flex items-center gap-3 text-sm">
+        <h1 class="text-2xl font-semibold text-text-primary" data-test="album-name">{{ album.name }}</h1>
+        <div class="flex items-center gap-4 text-sm">
           <button
             @click="toggleSharePanel"
             data-test="share-toggle"
-            class="text-slate-700 hover:text-slate-900 underline"
+            class="text-accent hover:text-accent-hover underline"
           >
             Share
           </button>
           <button
             @click="deleteAlbum"
             data-test="delete-album"
-            class="text-red-600 hover:underline"
+            class="text-coral hover:underline"
           >
             Delete album
           </button>
         </div>
       </div>
-      <p class="text-sm text-slate-500 mb-6">
+      <p class="text-sm text-text-muted mb-6">
         {{ album.locationDisplay }} · {{ album.photos.length }} photo{{ album.photos.length === 1 ? "" : "s" }}
       </p>
 
       <div
         v-if="sharePanelOpen"
         data-test="share-panel"
-        class="bg-white border border-slate-200 rounded-lg p-4 mb-6"
+        class="bg-surface border border-border-subtle rounded-lg p-4 mb-6"
       >
         <div class="flex items-center justify-between mb-3">
-          <h2 class="font-semibold">Share this album</h2>
+          <h2 class="font-semibold text-text-primary">Share this album</h2>
           <button
             @click="createShareLink"
             :disabled="creatingShare"
             data-test="create-share"
-            class="bg-slate-900 text-white text-sm px-3 py-1.5 rounded disabled:opacity-50"
+            class="bg-accent hover:bg-accent-hover text-base font-medium text-sm px-3 py-1.5 rounded disabled:opacity-50 transition-colors"
           >
             {{ creatingShare ? "Creating..." : "+ Create link" }}
           </button>
         </div>
-        <p v-if="shareLinks.length === 0" class="text-sm text-slate-500">
+        <p v-if="shareLinks.length === 0" class="text-sm text-text-muted">
           No share links yet.
         </p>
         <ul v-else class="space-y-2">
@@ -193,17 +193,17 @@ onMounted(load);
             <input
               readonly
               :value="shareUrl(link.token)"
-              class="flex-1 font-mono text-xs px-2 py-1 border border-slate-300 rounded bg-slate-50"
+              class="flex-1 font-mono text-xs px-2 py-1 border border-border-subtle bg-surface-2 text-text-primary rounded"
             />
             <button
               @click="copyShareUrl(link.token)"
-              class="text-sm px-3 py-1 border border-slate-300 rounded"
+              class="text-sm px-3 py-1 border border-border-subtle text-text-primary hover:border-accent rounded"
             >
               Copy
             </button>
             <button
               @click="revokeShare(link.token)"
-              class="text-sm text-red-600 underline"
+              class="text-sm text-coral hover:underline"
               data-test="revoke-share"
             >
               Revoke
@@ -214,7 +214,7 @@ onMounted(load);
 
       <p
         v-if="album.photos.length === 0"
-        class="text-slate-500"
+        class="text-text-muted"
         data-test="empty"
       >
         This album is empty.
@@ -233,7 +233,7 @@ onMounted(load);
           <button
             type="button"
             @click="lightboxIdx = i"
-            class="block w-full aspect-square overflow-hidden rounded bg-slate-200"
+            class="block w-full aspect-square overflow-hidden rounded bg-surface-2 border border-border-subtle group-hover:border-accent transition-colors"
             :aria-label="`Open photo ${i + 1}`"
           >
             <img
@@ -245,7 +245,7 @@ onMounted(load);
           </button>
           <button
             @click="deletePhoto(p.id)"
-            class="absolute top-2 right-2 bg-white/90 text-red-600 text-xs px-2 py-1 rounded shadow opacity-0 group-hover:opacity-100 transition-opacity"
+            class="absolute top-2 right-2 bg-surface/90 text-coral text-xs px-2 py-1 rounded shadow opacity-0 group-hover:opacity-100 transition-opacity border border-border-subtle"
           >
             Delete
           </button>
