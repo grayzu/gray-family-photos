@@ -467,8 +467,21 @@ export function buildApp() {
         const form = await c.req.formData();
         const file = form.get("file");
         if (!(file instanceof File)) return c.json({ error: "file required" }, 400);
-        if (!file.type.startsWith("image/"))
+        const lowerName = file.name.toLowerCase();
+        const isImageMime = file.type.startsWith("image/");
+        const isHeicByName = lowerName.endsWith(".heic") || lowerName.endsWith(".heif");
+        if (!isImageMime && !isHeicByName) {
           return c.json({ error: "image only" }, 400);
+        }
+        if (lowerName.endsWith(".heic") || lowerName.endsWith(".heif") || file.type === "image/heic" || file.type === "image/heif") {
+          return c.json(
+            {
+              error:
+                "HEIC photos must be converted to JPEG before upload. Please retry from a browser that supports automatic HEIC conversion.",
+            },
+            400,
+          );
+        }
 
         const buffer = Buffer.from(await file.arrayBuffer());
         const ext = file.name.split(".").pop() ?? "jpg";

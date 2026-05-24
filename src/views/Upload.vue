@@ -4,12 +4,21 @@ import { useRouter } from "vue-router";
 import LocationPromptModal, {
   type LocationCandidate,
 } from "@/components/LocationPromptModal.vue";
-import { hasGps, parsePhotoExif } from "@/lib/exif";
+import { hasGps, parsePhotoExif, type ParsedExif } from "@/lib/exif";
+import { convertHeicToJpeg, isHeic } from "@/lib/heic";
 
-type Status = "pending" | "needs-location" | "uploading" | "done" | "error";
+type Status =
+  | "pending"
+  | "converting"
+  | "needs-location"
+  | "uploading"
+  | "done"
+  | "error";
 
 type Job = {
-  file: File;
+  originalFile: File;
+  uploadFile: File;
+  exif: ParsedExif | null;
   status: Status;
   location: LocationCandidate | null;
   error: string | null;
@@ -30,30 +39,61 @@ const allDone = computed(
     jobs.value.length > 0 &&
     jobs.value.every((j) => j.status === "done" || j.status === "error"),
 );
+const canStart = computed(() =>
+  jobs.value.length > 0 &&
+  !allDone.value &&
+  promptingIdx.value === null &&
+  jobs.value.every((j) => j.status !== "converting"),
+);
 
 async function onSelect(e: Event) {
   const input = e.target as HTMLInputElement;
   const files = Array.from(input.files ?? []);
   jobs.value = files.map((file) => ({
-    file,
+    originalFile: file,
+    uploadFile: file,
+    exif: null,
     status: "pending" as Status,
     location: null,
     error: null,
   }));
+
+  for (const job of jobs.value) {
+    if (!isHeic(job.originalFile)) continue;
+    job.status = "converting";
+    try {
+      job.exif = await parsePhotoExif(job.originalFile);
+      job.uploadFile = await convertHeicToJpeg(job.originalFile);
+      job.status = "pending";
+    } catch (err) {
+      job.status = "error";
+      job.error =
+        err instanceof Error
+          ? `HEIC conversion failed: ${err.message}`
+          : "HEIC conversion failed";
+    }
+  }
 }
 
 async function startBatch() {
   for (let i = 0; i < jobs.value.length; i++) {
     const job = jobs.value[i]!;
-    if (job.status === "done") continue;
-    const parsed = await parsePhotoExif(job.file);
-    if (!hasGps(parsed) && !job.location) {
+    if (job.status === "done" || job.status === "error") continue;
+    if (job.status === "converting") return;
+
+    if (!job.exif) {
+      job.exif = await parsePhotoExif(job.uploadFile);
+    }
+
+    if (!hasGps(job.exif) && !job.location) {
       job.status = "needs-location";
       promptingIdx.value = i;
       return;
     }
+
     await uploadOne(i);
   }
+
   if (allDone.value && jobs.value.every((j) => j.status === "done")) {
     router.push("/");
   }
@@ -64,7 +104,7 @@ async function uploadOne(i: number) {
   job.status = "uploading";
   job.error = null;
   const fd = new FormData();
-  fd.append("file", job.file);
+  fd.append("file", job.uploadFile);
   if (job.location) {
     fd.append("latitude", String(job.location.lat));
     fd.append("longitude", String(job.location.lon));
@@ -111,6 +151,8 @@ function statusLabel(s: Status) {
   switch (s) {
     case "pending":
       return "Waiting";
+    case "converting":
+      return "Converting HEIC...";
     case "needs-location":
       return "Awaiting location";
     case "uploading":
@@ -129,7 +171,7 @@ function statusLabel(s: Status) {
     <input
       data-test="files"
       type="file"
-      accept="image/*"
+      accept="image/*,.heic,.heif"
       multiple
       @change="onSelect"
       class="block w-full text-sm mb-4 text-text-primary file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-sm file:bg-accent file:text-base hover:file:bg-accent-hover file:cursor-pointer cursor-pointer"
@@ -142,11 +184,13 @@ function statusLabel(s: Status) {
         data-test="upload-job"
         class="flex items-center gap-3 text-sm border-b border-border-subtle pb-2"
       >
-        <span class="flex-1 truncate text-text-primary">{{ job.file.name }}</span>
+        <span class="flex-1 truncate text-text-primary">{{ job.originalFile.name }}</span>
         <span
           :class="{
             'text-text-muted': job.status === 'pending',
-            'text-gold': job.status === 'needs-location' || job.status === 'uploading',
+            'text-turquoise': job.status === 'converting',
+            'text-gold':
+              job.status === 'needs-location' || job.status === 'uploading',
             'text-lime': job.status === 'done',
             'text-coral': job.status === 'error',
           }"
@@ -167,16 +211,23 @@ function statusLabel(s: Status) {
     <button
       data-test="start"
       type="button"
-      :disabled="jobs.length === 0 || allDone || promptingIdx !== null"
+      :disabled="!canStart"
       @click="startBatch"
       class="w-full bg-accent hover:bg-accent-hover text-base font-medium rounded py-2 disabled:opacity-50 transition-colors"
     >
       {{ allDone ? "All done" : "Upload" }}
     </button>
 
+    <p class="mt-3 text-xs text-text-muted">
+      iPhone/Mac HEIC photos are automatically converted to JPEG in your
+      browser before upload.
+    </p>
+
     <LocationPromptModal
       :open="promptingIdx !== null"
-      :file-name="promptingIdx !== null ? jobs[promptingIdx]?.file.name : undefined"
+      :file-name="
+        promptingIdx !== null ? jobs[promptingIdx]?.originalFile.name : undefined
+      "
       @confirm="onLocationConfirm"
       @cancel="onLocationCancel"
     />
