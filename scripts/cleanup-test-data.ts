@@ -22,13 +22,14 @@ console.log("Deleting R2 objects...");
 let deleted = 0;
 let failed = 0;
 for (const p of allPhotos) {
-  const results = await Promise.allSettled([
-    deleteObject(p.r2OriginalKey),
-    deleteObject(p.r2ThumbnailKey),
-  ]);
-  for (const r of results) {
-    if (r.status === "fulfilled") deleted++;
-    else failed++;
+  const keys = new Set([p.r2OriginalKey, p.r2ThumbnailKey]);
+  for (const k of keys) {
+    try {
+      await deleteObject(k);
+      deleted++;
+    } catch {
+      failed++;
+    }
   }
 }
 console.log(`  R2 deletes: ${deleted} ok, ${failed} failed`);

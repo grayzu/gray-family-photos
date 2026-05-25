@@ -5,21 +5,19 @@ import LocationPromptModal, {
   type LocationCandidate,
 } from "@/components/LocationPromptModal.vue";
 import { hasGps, parsePhotoExif, type ParsedExif } from "@/lib/exif";
-import { convertHeicToJpeg, isHeic } from "@/lib/heic";
-import { generateThumbnail } from "@/lib/thumbnail";
 
 type Status =
   | "pending"
-  | "converting"
   | "needs-location"
   | "uploading"
   | "done"
   | "error";
 
 type Job = {
-  originalFile: File;
-  uploadFile: File;
+  file: File;
   exif: ParsedExif | null;
+  width: number;
+  height: number;
   status: Status;
   location: LocationCandidate | null;
   error: string | null;
@@ -40,39 +38,49 @@ const allDone = computed(
     jobs.value.length > 0 &&
     jobs.value.every((j) => j.status === "done" || j.status === "error"),
 );
-const canStart = computed(() =>
-  jobs.value.length > 0 &&
-  !allDone.value &&
-  promptingIdx.value === null &&
-  jobs.value.every((j) => j.status !== "converting"),
-);
+
+function isHeicLike(file: File): boolean {
+  const n = file.name.toLowerCase();
+  return (
+    file.type === "image/heic" ||
+    file.type === "image/heif" ||
+    n.endsWith(".heic") ||
+    n.endsWith(".heif") ||
+    n.endsWith(".hif")
+  );
+}
+
+async function readDimensions(file: File): Promise<{ width: number; height: number }> {
+  if (isHeicLike(file)) return { width: 0, height: 0 };
+  try {
+    const bmp = await createImageBitmap(file);
+    const w = bmp.width;
+    const h = bmp.height;
+    bmp.close();
+    return { width: w, height: h };
+  } catch {
+    return { width: 0, height: 0 };
+  }
+}
 
 async function onSelect(e: Event) {
   const input = e.target as HTMLInputElement;
   const files = Array.from(input.files ?? []);
   jobs.value = files.map((file) => ({
-    originalFile: file,
-    uploadFile: file,
+    file,
     exif: null,
+    width: 0,
+    height: 0,
     status: "pending" as Status,
     location: null,
     error: null,
   }));
 
   for (const job of jobs.value) {
-    if (!isHeic(job.originalFile)) continue;
-    job.status = "converting";
-    try {
-      job.exif = await parsePhotoExif(job.originalFile);
-      job.uploadFile = await convertHeicToJpeg(job.originalFile);
-      job.status = "pending";
-    } catch (err) {
-      job.status = "error";
-      job.error =
-        err instanceof Error
-          ? `HEIC conversion failed: ${err.message}`
-          : "HEIC conversion failed";
-    }
+    job.exif = await parsePhotoExif(job.file);
+    const dims = await readDimensions(job.file);
+    job.width = dims.width;
+    job.height = dims.height;
   }
 }
 
@@ -80,21 +88,14 @@ async function startBatch() {
   for (let i = 0; i < jobs.value.length; i++) {
     const job = jobs.value[i]!;
     if (job.status === "done" || job.status === "error") continue;
-    if (job.status === "converting") return;
-
-    if (!job.exif) {
-      job.exif = await parsePhotoExif(job.uploadFile);
-    }
-
+    if (!job.exif) job.exif = await parsePhotoExif(job.file);
     if (!hasGps(job.exif) && !job.location) {
       job.status = "needs-location";
       promptingIdx.value = i;
       return;
     }
-
     await uploadOne(i);
   }
-
   if (allDone.value && jobs.value.every((j) => j.status === "done")) {
     router.push("/");
   }
@@ -109,19 +110,15 @@ async function uploadOne(i: number) {
     const exifLon = job.exif?.longitude ?? null;
     const lat = job.location?.lat ?? exifLat;
     const lon = job.location?.lon ?? exifLon;
-    if (lat === null || lon === null) {
-      throw new Error("location required");
-    }
-
-    const thumb = await generateThumbnail(job.uploadFile);
+    if (lat === null || lon === null) throw new Error("location required");
 
     const urlsRes = await fetch("/api/photos/upload-urls", {
       method: "POST",
       credentials: "include",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        fileName: job.uploadFile.name,
-        mimeType: job.uploadFile.type,
+        fileName: job.file.name,
+        mimeType: job.file.type || "image/jpeg",
         latitude: lat,
         longitude: lon,
       }),
@@ -130,33 +127,19 @@ async function uploadOne(i: number) {
       const err = (await urlsRes.json().catch(() => ({}))) as { error?: string };
       throw new Error(err.error ?? `HTTP ${urlsRes.status}`);
     }
-    const {
-      originalKey,
-      thumbnailKey,
-      originalUploadUrl,
-      thumbnailUploadUrl,
-    } = (await urlsRes.json()) as {
+    const { originalKey, originalUploadUrl } = (await urlsRes.json()) as {
       originalKey: string;
-      thumbnailKey: string;
       originalUploadUrl: string;
-      thumbnailUploadUrl: string;
     };
 
-    const [origPut, thumbPut] = await Promise.all([
-      fetch(originalUploadUrl, {
-        method: "PUT",
-        body: job.uploadFile,
-        headers: { "content-type": job.uploadFile.type },
-      }),
-      fetch(thumbnailUploadUrl, {
-        method: "PUT",
-        body: thumb.blob,
-        headers: { "content-type": "image/jpeg" },
-      }),
-    ]);
-    if (!origPut.ok || !thumbPut.ok) {
+    const putRes = await fetch(originalUploadUrl, {
+      method: "PUT",
+      body: job.file,
+      headers: { "content-type": job.file.type || "image/jpeg" },
+    });
+    if (!putRes.ok) {
       throw new Error(
-        "Direct R2 upload failed. The R2 bucket may need a CORS policy that allows PUT from this origin.",
+        "Direct R2 upload failed. The R2 bucket needs a CORS policy allowing PUT from this origin.",
       );
     }
 
@@ -171,11 +154,10 @@ async function uploadOne(i: number) {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         originalKey,
-        thumbnailKey,
-        mimeType: job.uploadFile.type,
-        fileSize: job.uploadFile.size,
-        width: thumb.width,
-        height: thumb.height,
+        mimeType: job.file.type || "image/jpeg",
+        fileSize: job.file.size,
+        width: job.width,
+        height: job.height,
         takenAt,
         latitude: lat,
         longitude: lon,
@@ -216,8 +198,6 @@ function statusLabel(s: Status) {
   switch (s) {
     case "pending":
       return "Waiting";
-    case "converting":
-      return "Converting HEIC...";
     case "needs-location":
       return "Awaiting location";
     case "uploading":
@@ -249,11 +229,10 @@ function statusLabel(s: Status) {
         data-test="upload-job"
         class="flex items-center gap-3 text-sm border-b border-border-subtle pb-2"
       >
-        <span class="flex-1 truncate text-text-primary">{{ job.originalFile.name }}</span>
+        <span class="flex-1 truncate text-text-primary">{{ job.file.name }}</span>
         <span
           :class="{
             'text-text-muted': job.status === 'pending',
-            'text-turquoise': job.status === 'converting',
             'text-gold':
               job.status === 'needs-location' || job.status === 'uploading',
             'text-lime': job.status === 'done',
@@ -276,7 +255,7 @@ function statusLabel(s: Status) {
     <button
       data-test="start"
       type="button"
-      :disabled="!canStart"
+      :disabled="jobs.length === 0 || allDone || promptingIdx !== null"
       @click="startBatch"
       class="w-full bg-accent hover:bg-accent-hover text-base font-medium rounded py-2 disabled:opacity-50 transition-colors"
     >
@@ -284,14 +263,14 @@ function statusLabel(s: Status) {
     </button>
 
     <p class="mt-3 text-xs text-text-muted">
-      iPhone/Mac HEIC photos are automatically converted to JPEG in your
-      browser before upload.
+      iPhone HEIC photos upload as-is; thumbnails are generated on demand by
+      Cloudflare's image pipeline (no conversion in your browser).
     </p>
 
     <LocationPromptModal
       :open="promptingIdx !== null"
       :file-name="
-        promptingIdx !== null ? jobs[promptingIdx]?.originalFile.name : undefined
+        promptingIdx !== null ? jobs[promptingIdx]?.file.name : undefined
       "
       @confirm="onLocationConfirm"
       @cancel="onLocationCancel"

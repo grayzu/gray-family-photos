@@ -2,11 +2,9 @@ import {
   S3Client,
   PutObjectCommand,
   DeleteObjectCommand,
-  GetObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { randomBytes } from "node:crypto";
-import sharp from "sharp";
 import { env } from "./env.js";
 
 const s3 = new S3Client({
@@ -18,54 +16,24 @@ const s3 = new S3Client({
   },
 });
 
-const THUMB_MAX_DIM = 800;
-const THUMB_QUALITY = 80;
-
-export function newPhotoKey(ext: string): { originalKey: string; thumbnailKey: string } {
+export function newPhotoKey(ext: string): string {
   const id = randomBytes(16).toString("hex");
   const cleanExt = ext.toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
-  return {
-    originalKey: `originals/${id}.${cleanExt}`,
-    thumbnailKey: `thumbnails/${id}.jpg`,
-  };
+  return `originals/${id}.${cleanExt}`;
 }
 
-export function publicUrl(key: string): string {
-  return `${env.R2_PUBLIC_BASE_URL}/${key}`;
+export function publicUrl(key: string, transform?: string): string {
+  const base = env.R2_PUBLIC_BASE_URL;
+  if (transform) return `${base}/cdn-cgi/image/${transform}/${key}`;
+  return `${base}/${key}`;
 }
 
-export async function uploadOriginal(
-  key: string,
-  body: Buffer | Uint8Array,
-  contentType: string,
-) {
-  await s3.send(
-    new PutObjectCommand({
-      Bucket: env.R2_BUCKET,
-      Key: key,
-      Body: body,
-      ContentType: contentType,
-    }),
-  );
+export function thumbnailUrl(key: string): string {
+  return publicUrl(key, "width=800,format=auto,fit=cover");
 }
 
-export async function generateAndUploadThumbnail(
-  originalBuffer: Buffer,
-  thumbnailKey: string,
-) {
-  const thumb = await sharp(originalBuffer)
-    .rotate()
-    .resize(THUMB_MAX_DIM, THUMB_MAX_DIM, { fit: "inside", withoutEnlargement: true })
-    .jpeg({ quality: THUMB_QUALITY })
-    .toBuffer();
-  await s3.send(
-    new PutObjectCommand({
-      Bucket: env.R2_BUCKET,
-      Key: thumbnailKey,
-      Body: thumb,
-      ContentType: "image/jpeg",
-    }),
-  );
+export function viewUrl(key: string): string {
+  return publicUrl(key, "format=auto");
 }
 
 export async function deleteObject(key: string) {
@@ -82,20 +50,4 @@ export async function presignPut(key: string, contentType: string, ttlSec = 300)
     }),
     { expiresIn: ttlSec },
   );
-}
-
-export async function readObject(key: string): Promise<Buffer> {
-  const out = await s3.send(
-    new GetObjectCommand({ Bucket: env.R2_BUCKET, Key: key }),
-  );
-  const chunks: Uint8Array[] = [];
-  for await (const chunk of out.Body as AsyncIterable<Uint8Array>) {
-    chunks.push(chunk);
-  }
-  return Buffer.concat(chunks);
-}
-
-export async function imageDimensions(buf: Buffer): Promise<{ width: number; height: number }> {
-  const meta = await sharp(buf).metadata();
-  return { width: meta.width ?? 0, height: meta.height ?? 0 };
 }

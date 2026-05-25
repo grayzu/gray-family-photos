@@ -18,7 +18,8 @@ import { sendCodeEmail, getDevLastCode } from "./email.js";
 import {
   newPhotoKey,
   presignPut,
-  publicUrl,
+  thumbnailUrl,
+  viewUrl,
   deleteObject,
 } from "./storage.js";
 import { geocode } from "./geocoding.js";
@@ -107,8 +108,8 @@ export function buildApp() {
       },
       photos: albumPhotos.map((p) => ({
         id: p.id,
-        originalUrl: publicUrl(p.r2OriginalKey),
-        thumbnailUrl: publicUrl(p.r2ThumbnailKey),
+        originalUrl: viewUrl(p.r2OriginalKey),
+        thumbnailUrl: thumbnailUrl(p.r2OriginalKey),
         takenAt: p.takenAt,
         width: p.width,
         height: p.height,
@@ -255,7 +256,7 @@ export function buildApp() {
           .select({
             albumId: photos.albumId,
             id: photos.id,
-            thumbKey: photos.r2ThumbnailKey,
+            originalKey: photos.r2OriginalKey,
             uploadedAt: photos.uploadedAt,
           })
           .from(photos)
@@ -268,13 +269,13 @@ export function buildApp() {
           if (!existing) {
             countsByAlbum.set(p.albumId, {
               count: 1,
-              coverKey: p.thumbKey,
+              coverKey: p.originalKey,
               coverUploadedAt: p.uploadedAt,
             });
           } else {
             existing.count++;
             if (p.uploadedAt > existing.coverUploadedAt) {
-              existing.coverKey = p.thumbKey;
+              existing.coverKey = p.originalKey;
               existing.coverUploadedAt = p.uploadedAt;
             }
           }
@@ -292,7 +293,7 @@ export function buildApp() {
               month: a.month,
               locationDisplay: a.locationDisplay,
               photoCount: info.count,
-              coverUrl: info.coverKey ? publicUrl(info.coverKey) : null,
+              coverUrl: info.coverKey ? thumbnailUrl(info.coverKey) : null,
             };
           })
           .filter((x): x is NonNullable<typeof x> => x !== null)
@@ -326,8 +327,8 @@ export function buildApp() {
           locationDisplay: album[0].locationDisplay,
           photos: albumPhotos.map((p) => ({
             id: p.id,
-            originalUrl: publicUrl(p.r2OriginalKey),
-            thumbnailUrl: publicUrl(p.r2ThumbnailKey),
+            originalUrl: viewUrl(p.r2OriginalKey),
+            thumbnailUrl: thumbnailUrl(p.r2OriginalKey),
             takenAt: p.takenAt,
             width: p.width,
             height: p.height,
@@ -360,10 +361,7 @@ export function buildApp() {
           .from(photos)
           .where(and(eq(photos.albumId, id), eq(photos.userId, user.id)));
         for (const p of userPhotos) {
-          await Promise.allSettled([
-            deleteObject(p.r2OriginalKey),
-            deleteObject(p.r2ThumbnailKey),
-          ]);
+          await deleteObject(p.r2OriginalKey).catch(() => undefined);
         }
         await db
           .delete(photos)
@@ -449,8 +447,8 @@ export function buildApp() {
         return c.json(
           rows.map((p) => ({
             id: p.id,
-            originalUrl: publicUrl(p.r2OriginalKey),
-            thumbnailUrl: publicUrl(p.r2ThumbnailKey),
+            originalUrl: viewUrl(p.r2OriginalKey),
+            thumbnailUrl: thumbnailUrl(p.r2OriginalKey),
             takenAt: p.takenAt,
             width: p.width,
             height: p.height,
@@ -477,16 +475,11 @@ export function buildApp() {
           return c.json({ error: "location required" }, 400);
         }
         const ext = fileName.split(".").pop() ?? "jpg";
-        const { originalKey, thumbnailKey } = newPhotoKey(ext);
-        const [originalUploadUrl, thumbnailUploadUrl] = await Promise.all([
-          presignPut(originalKey, mimeType, 600),
-          presignPut(thumbnailKey, "image/jpeg", 600),
-        ]);
+        const originalKey = newPhotoKey(ext);
+        const originalUploadUrl = await presignPut(originalKey, mimeType, 600);
         return c.json({
           originalKey,
-          thumbnailKey,
           originalUploadUrl,
-          thumbnailUploadUrl,
         });
       })
       .post("/commit", async (c) => {
@@ -498,11 +491,10 @@ export function buildApp() {
         if (!body) return c.json({ error: "body required" }, 400);
 
         const originalKey = typeof body.originalKey === "string" ? body.originalKey : null;
-        const thumbnailKey = typeof body.thumbnailKey === "string" ? body.thumbnailKey : null;
         const mimeType = typeof body.mimeType === "string" ? body.mimeType : null;
         const fileSize = typeof body.fileSize === "number" ? body.fileSize : null;
-        const width = typeof body.width === "number" ? body.width : null;
-        const height = typeof body.height === "number" ? body.height : null;
+        const width = typeof body.width === "number" ? body.width : 0;
+        const height = typeof body.height === "number" ? body.height : 0;
         const latitude = typeof body.latitude === "number" ? body.latitude : null;
         const longitude = typeof body.longitude === "number" ? body.longitude : null;
         const locationDisplay =
@@ -516,19 +508,16 @@ export function buildApp() {
 
         if (
           !originalKey ||
-          !thumbnailKey ||
           !mimeType ||
           fileSize === null ||
-          width === null ||
-          height === null ||
           latitude === null ||
           longitude === null ||
           !locationDisplay
         ) {
           return c.json({ error: "missing required fields" }, 400);
         }
-        if (!originalKey.startsWith("originals/") || !thumbnailKey.startsWith("thumbnails/")) {
-          return c.json({ error: "invalid keys" }, 400);
+        if (!originalKey.startsWith("originals/")) {
+          return c.json({ error: "invalid key" }, 400);
         }
 
         const id = randomBytes(16).toString("hex");
@@ -536,7 +525,7 @@ export function buildApp() {
           id,
           userId: user.id,
           r2OriginalKey: originalKey,
-          r2ThumbnailKey: thumbnailKey,
+          r2ThumbnailKey: originalKey,
           takenAt,
           latitude,
           longitude,
@@ -562,8 +551,8 @@ export function buildApp() {
         return c.json(
           {
             id,
-            originalUrl: publicUrl(originalKey),
-            thumbnailUrl: publicUrl(thumbnailKey),
+            originalUrl: viewUrl(originalKey),
+            thumbnailUrl: thumbnailUrl(originalKey),
             takenAt,
             width,
             height,
@@ -696,10 +685,7 @@ export function buildApp() {
           .limit(1);
         const p = rows[0];
         if (!p || p.userId !== user.id) return c.json({ error: "not found" }, 404);
-        await Promise.allSettled([
-          deleteObject(p.r2OriginalKey),
-          deleteObject(p.r2ThumbnailKey),
-        ]);
+        await deleteObject(p.r2OriginalKey).catch(() => undefined);
         await db.delete(photos).where(eq(photos.id, id));
         if (p.albumId) {
           await maybeFixAlbumCover(p.albumId);
