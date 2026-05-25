@@ -263,8 +263,9 @@ function statusLabel(s: Status) {
     </button>
 
     <p class="mt-3 text-xs text-text-muted">
-      iPhone HEIC photos upload as-is; thumbnails are generated on demand by
-      Cloudflare's image pipeline (no conversion in your browser).
+      JPEG and plain HEIC photos work fine. iPhone Live Photos / Portrait Mode
+      (heix HEIF) will upload but display a placeholder. To avoid this on iPhone,
+      set <span class="text-text-primary">Settings → Camera → Formats → Most Compatible</span>.
     </p>
 
     <LocationPromptModal

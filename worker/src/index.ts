@@ -1,9 +1,3 @@
-/// <reference path="./types.d.ts" />
-// @ts-ignore - libheif-js/wasm-bundle has no types; declared in types.d.ts
-import libheif from "libheif-js/wasm-bundle";
-import { encode as encodeJpeg } from "@jsquash/jpeg";
-import resize from "@jsquash/resize";
-
 export interface Env {
   R2_PUBLIC_BASE_URL: string;
 }
@@ -38,17 +32,40 @@ function parseParams(raw: string): TransformParams {
   return out;
 }
 
-function withCacheHeaders(res: Response): Response {
+function withCacheHeaders(res: Response, maxAge = 31536000): Response {
   const out = new Response(res.body, res);
-  out.headers.set("Cache-Control", "public, max-age=31536000, immutable");
+  out.headers.set("Cache-Control", `public, max-age=${maxAge}, immutable`);
   out.headers.set("Vary", "Accept");
   return out;
+}
+
+const UNSUPPORTED_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400">
+  <rect width="400" height="400" fill="#1e2a24"/>
+  <g fill="#8da99c" font-family="sans-serif" text-anchor="middle">
+    <text x="200" y="180" font-size="20">Unsupported format</text>
+    <text x="200" y="210" font-size="14" fill="#fb7185">iPhone Live Photo / Portrait Mode</text>
+    <text x="200" y="240" font-size="12">Set Camera \u2192 Formats \u2192 Most Compatible</text>
+  </g>
+</svg>`;
+
+function unsupportedResponse(reason: string): Response {
+  return new Response(UNSUPPORTED_SVG, {
+    status: 200,
+    headers: {
+      "Content-Type": "image/svg+xml",
+      "Cache-Control": "public, max-age=3600",
+      "X-Image-Unsupported": "true",
+      "X-CF-Reason": reason,
+    },
+  });
 }
 
 async function tryCloudflareImage(
   r2Url: string,
   params: TransformParams,
-): Promise<Response | null> {
+): Promise<
+  { ok: true; res: Response } | { ok: false; status: number; reason: string }
+> {
   const cfImage: Record<string, unknown> = {};
   if (params.width) cfImage.width = params.width;
   if (params.height) cfImage.height = params.height;
@@ -57,122 +74,26 @@ async function tryCloudflareImage(
   if (params.format && params.format !== "auto") cfImage.format = params.format;
 
   const res = await fetch(r2Url, { cf: { image: cfImage } } as RequestInit);
-  if (res.status !== 200) return null;
-
+  if (res.status !== 200) {
+    return { ok: false, status: res.status, reason: `HTTP ${res.status}` };
+  }
   const resized = res.headers.get("cf-resized") ?? "";
-  if (resized.startsWith("err=")) return null;
-
+  if (resized.startsWith("err=")) {
+    return { ok: false, status: 415, reason: resized };
+  }
   const ct = res.headers.get("content-type") ?? "";
-  if (!ct.startsWith("image/")) return null;
-
-  return res;
-}
-
-function targetDimensions(
-  srcW: number,
-  srcH: number,
-  params: TransformParams,
-): { width: number; height: number } {
-  const w = params.width;
-  const h = params.height;
-  const fit: Fit = params.fit ?? "scale-down";
-
-  if (!w && !h) return { width: srcW, height: srcH };
-
-  if (fit === "scale-down") {
-    const scale = Math.min(
-      w ? w / srcW : 1,
-      h ? h / srcH : 1,
-      1,
-    );
-    return {
-      width: Math.max(1, Math.round(srcW * scale)),
-      height: Math.max(1, Math.round(srcH * scale)),
-    };
+  if (!ct.startsWith("image/")) {
+    return { ok: false, status: 415, reason: `content-type: ${ct}` };
   }
-  if (fit === "contain") {
-    const scale = Math.min(
-      w ? w / srcW : Number.POSITIVE_INFINITY,
-      h ? h / srcH : Number.POSITIVE_INFINITY,
-    );
-    return {
-      width: Math.max(1, Math.round(srcW * scale)),
-      height: Math.max(1, Math.round(srcH * scale)),
-    };
-  }
-  const scale = Math.max(
-    w ? w / srcW : 0,
-    h ? h / srcH : 0,
-  );
-  return {
-    width: w ?? Math.max(1, Math.round(srcW * scale)),
-    height: h ?? Math.max(1, Math.round(srcH * scale)),
-  };
-}
-
-async function decodeHeifToImageData(bytes: ArrayBuffer): Promise<ImageData> {
-  const decoder = new libheif.HeifDecoder();
-  const images = decoder.decode(new Uint8Array(bytes));
-  if (!images || images.length === 0) {
-    throw new Error("HEIF decode returned no images");
-  }
-  const image = images[0];
-  const width = image.get_width();
-  const height = image.get_height();
-  const rgba = new Uint8ClampedArray(width * height * 4);
-  await new Promise<void>((resolve, reject) => {
-    image.display({ data: rgba, width, height }, (display: unknown) => {
-      if (!display) reject(new Error("HEIF display callback returned null"));
-      else resolve();
-    });
-  });
-  return { data: rgba, width, height, colorSpace: "srgb" } as ImageData;
-}
-
-async function wasmDecodeAndResize(
-  r2Url: string,
-  params: TransformParams,
-): Promise<Response> {
-  const raw = await fetch(r2Url);
-  if (!raw.ok) {
-    return new Response(`source fetch failed: ${raw.status}`, { status: 502 });
-  }
-  const bytes = await raw.arrayBuffer();
-
-  let img: ImageData;
-  try {
-    img = await decodeHeifToImageData(bytes);
-  } catch (e) {
-    return new Response(`decode failed: ${(e as Error).message}`, {
-      status: 500,
-    });
-  }
-
-  const target = targetDimensions(img.width, img.height, params);
-  let resized: ImageData = img;
-  if (target.width !== img.width || target.height !== img.height) {
-    resized = await resize(img, {
-      width: target.width,
-      height: target.height,
-      method: "lanczos3",
-    });
-  }
-
-  const jpegBuffer = await encodeJpeg(resized, {
-    quality: params.quality ?? 85,
-  });
-
-  return new Response(jpegBuffer, {
-    status: 200,
-    headers: {
-      "Content-Type": "image/jpeg",
-      "Content-Length": String(jpegBuffer.byteLength),
-    },
-  });
+  return { ok: true, res };
 }
 
 export default {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+  async fetch(
+    request: Request,
+    env: Env,
+    ctx: ExecutionContext,
+  ): Promise<Response> {
     const url = new URL(request.url);
     const match = url.pathname.match(/^\/img\/([^/]+)\/(.+)$/);
     if (!match) return new Response("Not found", { status: 404 });
@@ -181,7 +102,7 @@ export default {
     const key = match[2]!;
     const params = parseParams(paramStr);
 
-    const cache = caches.default;
+    const cache = (caches as unknown as { default: Cache }).default;
     const cacheKey = new Request(url.toString(), {
       headers: { Accept: request.headers.get("Accept") ?? "" },
     });
@@ -189,20 +110,16 @@ export default {
     if (cached) return cached;
 
     const r2Url = `${env.R2_PUBLIC_BASE_URL}/${key}`;
+    const cfResult = await tryCloudflareImage(r2Url, params);
 
-    const cfRes = await tryCloudflareImage(r2Url, params);
-    if (cfRes) {
-      const out = withCacheHeaders(cfRes);
+    if (cfResult.ok) {
+      const out = withCacheHeaders(cfResult.res);
       ctx.waitUntil(cache.put(cacheKey, out.clone()));
       return out;
     }
 
-    const wasmRes = await wasmDecodeAndResize(r2Url, params);
-    if (wasmRes.ok) {
-      const out = withCacheHeaders(wasmRes);
-      ctx.waitUntil(cache.put(cacheKey, out.clone()));
-      return out;
-    }
-    return wasmRes;
+    const placeholder = unsupportedResponse(cfResult.reason);
+    ctx.waitUntil(cache.put(cacheKey, placeholder.clone()));
+    return placeholder;
   },
 };

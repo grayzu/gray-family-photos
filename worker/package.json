@@ -8,11 +8,7 @@
     "dev": "wrangler dev",
     "tail": "wrangler tail"
   },
-  "dependencies": {
-    "libheif-js": "^1.19.8",
-    "@jsquash/jpeg": "^1.6.0",
-    "@jsquash/resize": "^2.1.1"
-  },
+  "dependencies": {},
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250101.0",
     "typescript": "^5.6.3",
