@@ -57,14 +57,15 @@ async function tryCloudflareImage(
   if (params.format && params.format !== "auto") cfImage.format = params.format;
 
   const res = await fetch(r2Url, { cf: { image: cfImage } } as RequestInit);
-  if (res.status === 200) {
-    const resized = res.headers.get("cf-resized") ?? "";
-    if (resized.includes("internal=ok") || resized.includes("ok/")) {
-      return res;
-    }
-    return null;
-  }
-  return null;
+  if (res.status !== 200) return null;
+
+  const resized = res.headers.get("cf-resized") ?? "";
+  if (resized.startsWith("err=")) return null;
+
+  const ct = res.headers.get("content-type") ?? "";
+  if (!ct.startsWith("image/")) return null;
+
+  return res;
 }
 
 function targetDimensions(
