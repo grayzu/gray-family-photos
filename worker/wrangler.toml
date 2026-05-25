@@ -1,0 +1,14 @@
+name = "gray-family-photo-img"
+main = "src/index.ts"
+compatibility_date = "2025-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+R2_PUBLIC_BASE_URL = "https://photos.grayzu.com"
+
+[[routes]]
+pattern = "photos.grayzu.com/img/*"
+zone_name = "grayzu.com"
+
+[observability]
+enabled = true

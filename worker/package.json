@@ -1,0 +1,21 @@
+{
+  "name": "gray-family-photo-img-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "tail": "wrangler tail"
+  },
+  "dependencies": {
+    "libheif-js": "^1.19.8",
+    "@jsquash/jpeg": "^1.6.0",
+    "@jsquash/resize": "^2.1.1"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250101.0",
+    "typescript": "^5.6.3",
+    "wrangler": "^3.95.0"
+  }
+}

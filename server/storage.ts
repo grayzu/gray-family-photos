@@ -24,12 +24,12 @@ export function newPhotoKey(ext: string): string {
 
 export function publicUrl(key: string, transform?: string): string {
   const base = env.R2_PUBLIC_BASE_URL;
-  if (transform) return `${base}/cdn-cgi/image/${transform}/${key}`;
+  if (transform) return `${base}/img/${transform}/${key}`;
   return `${base}/${key}`;
 }
 
 export function thumbnailUrl(key: string): string {
-  return publicUrl(key, "width=800,format=auto,fit=cover");
+  return publicUrl(key, "width=800,format=auto,fit=scale-down");
 }
 
 export function viewUrl(key: string): string {
