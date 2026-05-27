@@ -42,9 +42,11 @@ function withCacheHeaders(res: Response, maxAge = 31536000): Response {
 const UNSUPPORTED_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400">
   <rect width="400" height="400" fill="#1e2a24"/>
   <g fill="#8da99c" font-family="sans-serif" text-anchor="middle">
-    <text x="200" y="180" font-size="20">Unsupported format</text>
-    <text x="200" y="210" font-size="14" fill="#fb7185">iPhone Live Photo / Portrait Mode</text>
-    <text x="200" y="240" font-size="12">Set Camera \u2192 Formats \u2192 Most Compatible</text>
+    <text x="200" y="170" font-size="20">Unsupported HEIF variant</text>
+    <text x="200" y="200" font-size="13" fill="#fb7185">CF image pipeline can't decode this file</text>
+    <text x="200" y="240" font-size="11">iPhone: Settings \u2192 Camera \u2192 Formats \u2192 Most Compatible</text>
+    <text x="200" y="260" font-size="11">Sony \u03b1: Menu \u2192 File/Format \u2192 Photo File Format \u2192 JPEG</text>
+    <text x="200" y="280" font-size="11">Or convert HEIF to JPEG before uploading</text>
   </g>
 </svg>`;
 

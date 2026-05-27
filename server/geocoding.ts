@@ -116,3 +116,61 @@ export async function geocode(q: string): Promise<GeocodeCandidate[]> {
 
   return parseRaw(raw);
 }
+
+const NOMINATIM_REVERSE_URL = "https://nominatim.openstreetmap.org/reverse";
+
+export async function reverseGeocode(
+  lat: number,
+  lon: number,
+): Promise<GeocodeCandidate | null> {
+  const cacheKey = `__rev__:${lat.toFixed(4)}:${lon.toFixed(4)}`;
+  const cached = await db
+    .select()
+    .from(geocodeCache)
+    .where(eq(geocodeCache.query, cacheKey))
+    .limit(1);
+  if (cached[0]) {
+    try {
+      const parsed = JSON.parse(cached[0].response);
+      const arr = parseRaw([parsed]);
+      return arr[0] ?? null;
+    } catch {
+      /* corrupt cache row, refetch */
+    }
+  }
+
+  const raw = await rateLimited(async () => {
+    const url = new URL(NOMINATIM_REVERSE_URL);
+    url.searchParams.set("lat", String(lat));
+    url.searchParams.set("lon", String(lon));
+    url.searchParams.set("format", "json");
+    url.searchParams.set("addressdetails", "1");
+    url.searchParams.set("zoom", "12");
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": env.NOMINATIM_USER_AGENT,
+        Accept: "application/json",
+      },
+    });
+    if (!res.ok) throw new Error(`nominatim reverse ${res.status}`);
+    return res.json();
+  });
+
+  await db
+    .insert(geocodeCache)
+    .values({
+      query: cacheKey,
+      response: JSON.stringify(raw),
+      fetchedAt: Math.floor(Date.now() / 1000),
+    })
+    .onConflictDoUpdate({
+      target: geocodeCache.query,
+      set: {
+        response: JSON.stringify(raw),
+        fetchedAt: Math.floor(Date.now() / 1000),
+      },
+    });
+
+  const parsed = parseRaw([raw]);
+  return parsed[0] ?? null;
+}

@@ -22,7 +22,8 @@ import {
   viewUrl,
   deleteObject,
 } from "./storage.js";
-import { geocode } from "./geocoding.js";
+import { geocode, reverseGeocode } from "./geocoding.js";
+import { inspectHeifBrand, convertHeifToJpeg } from "./heif.js";
 import {
   assignPhotoToAlbum,
   maybeDeleteEmptyAlbum,
@@ -490,34 +491,78 @@ export function buildApp() {
         > | null;
         if (!body) return c.json({ error: "body required" }, 400);
 
-        const originalKey = typeof body.originalKey === "string" ? body.originalKey : null;
-        const mimeType = typeof body.mimeType === "string" ? body.mimeType : null;
-        const fileSize = typeof body.fileSize === "number" ? body.fileSize : null;
+        const rawOriginalKey = typeof body.originalKey === "string" ? body.originalKey : null;
+        let mimeType = typeof body.mimeType === "string" ? body.mimeType : null;
+        let fileSize = typeof body.fileSize === "number" ? body.fileSize : null;
         const width = typeof body.width === "number" ? body.width : 0;
         const height = typeof body.height === "number" ? body.height : 0;
         const latitude = typeof body.latitude === "number" ? body.latitude : null;
         const longitude = typeof body.longitude === "number" ? body.longitude : null;
-        const locationDisplay =
-          typeof body.locationDisplay === "string" ? body.locationDisplay : null;
-        const locationName =
-          typeof body.locationName === "string" ? body.locationName : null;
-        const locationCountry =
-          typeof body.locationCountry === "string" ? body.locationCountry : null;
+        let locationDisplay =
+          typeof body.locationDisplay === "string" && body.locationDisplay.trim()
+            ? (body.locationDisplay as string)
+            : null;
+        let locationName =
+          typeof body.locationName === "string" && body.locationName.trim()
+            ? (body.locationName as string)
+            : null;
+        let locationCountry =
+          typeof body.locationCountry === "string" && body.locationCountry.trim()
+            ? (body.locationCountry as string)
+            : null;
         const takenAt =
           typeof body.takenAt === "number" ? body.takenAt : null;
 
         if (
-          !originalKey ||
+          !rawOriginalKey ||
           !mimeType ||
           fileSize === null ||
           latitude === null ||
-          longitude === null ||
-          !locationDisplay
+          longitude === null
         ) {
           return c.json({ error: "missing required fields" }, 400);
         }
-        if (!originalKey.startsWith("originals/")) {
+        if (!rawOriginalKey.startsWith("originals/")) {
           return c.json({ error: "invalid key" }, 400);
+        }
+
+        if (!locationDisplay) {
+          try {
+            const rev = await reverseGeocode(latitude, longitude);
+            if (rev) {
+              locationDisplay = rev.display;
+              locationName = locationName ?? rev.name;
+              locationCountry = locationCountry ?? rev.countryCode;
+            }
+          } catch (err) {
+            console.warn("reverse-geocode failed:", err);
+          }
+          if (!locationDisplay) {
+            locationDisplay = `${latitude.toFixed(3)}, ${longitude.toFixed(3)}`;
+          }
+        }
+
+        let originalKey = rawOriginalKey;
+        const heifInfo = await inspectHeifBrand(originalKey);
+        if (heifInfo.needsConversion) {
+          try {
+            const converted = await convertHeifToJpeg(originalKey, 95);
+            originalKey = converted.newKey;
+            mimeType = "image/jpeg";
+            fileSize = converted.size;
+            console.log(
+              `Converted heix variant (${heifInfo.majorBrand}) -> jpeg: ${originalKey} (${converted.size} bytes)`,
+            );
+          } catch (err) {
+            console.error("HEIF conversion failed:", err);
+            return c.json(
+              {
+                error:
+                  "This HEIF variant cannot be processed. Try exporting as JPEG from your camera or photo app.",
+              },
+              415,
+            );
+          }
         }
 
         const id = randomBytes(16).toString("hex");
