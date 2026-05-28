@@ -1,6 +1,6 @@
 import { test, expect, request } from "@playwright/test";
 
-const ADMIN_EMAIL = "mark@grayszone.com";
+const ADMIN_EMAIL = "playwright-test@example.com";
 const API_BASE = process.env.E2E_API_BASE ?? "http://localhost:3001";
 
 async function fetchLatestCodeForEmail(email: string): Promise<string> {
