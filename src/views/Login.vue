@@ -7,8 +7,10 @@ const auth = useAuthStore();
 const router = useRouter();
 const route = useRoute();
 
+const prefillEmail = typeof route.query.email === "string" ? route.query.email : "";
+
 const stage = ref<"email" | "code">("email");
-const email = ref("");
+const email = ref(prefillEmail);
 const code = ref("");
 const error = ref<string | null>(null);
 const submitting = ref(false);

@@ -14,7 +14,7 @@ import {
   setSessionCookieHeader,
   clearSessionCookieHeader,
 } from "./auth.js";
-import { sendCodeEmail, getDevLastCode } from "./email.js";
+import { sendCodeEmail, sendInviteEmail, getDevLastCode } from "./email.js";
 import {
   newPhotoKey,
   presignPut,
@@ -236,7 +236,17 @@ export function buildApp() {
             target: allowedEmails.email,
             set: { name, isAdmin, addedBy: user.id },
           });
-        return c.json({ email, name, isAdmin }, 201);
+
+        let invited = false;
+        let inviteError: string | null = null;
+        try {
+          await sendInviteEmail(email, name || undefined, user.name ?? user.email);
+          invited = true;
+        } catch (err) {
+          inviteError = err instanceof Error ? err.message : String(err);
+          console.error("sendInviteEmail failed:", err);
+        }
+        return c.json({ email, name, isAdmin, invited, inviteError }, 201);
       })
       .delete("/:email", async (c) => {
         const user = c.get("user");

@@ -10,7 +10,7 @@ const required = [
   "SESSION_SECRET",
 ] as const;
 
-const optional = ["RESEND_API_KEY", "RESEND_FROM_EMAIL"] as const;
+const optional = ["RESEND_API_KEY", "RESEND_FROM_EMAIL", "APP_BASE_URL"] as const;
 
 type Required = (typeof required)[number];
 type Optional = (typeof optional)[number];
@@ -45,4 +45,8 @@ export const env = {
   RESEND_FROM_EMAIL:
     readOptional("RESEND_FROM_EMAIL") ??
     "Gray Family Photos <onboarding@resend.dev>",
+  APP_BASE_URL: (readOptional("APP_BASE_URL") ?? "https://gray-family-photos.vercel.app").replace(
+    /\/$/,
+    "",
+  ),
 };

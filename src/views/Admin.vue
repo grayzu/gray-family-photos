@@ -16,6 +16,7 @@ const newEmail = ref("");
 const newName = ref("");
 const newIsAdmin = ref(false);
 const submitting = ref(false);
+const lastInvite = ref<{ email: string; invited: boolean; inviteError: string | null } | null>(null);
 
 async function refresh() {
   loading.value = true;
@@ -48,6 +49,16 @@ async function add() {
       const err = (await res.json().catch(() => ({}))) as { error?: string };
       throw new Error(err.error ?? `HTTP ${res.status}`);
     }
+    const data = (await res.json().catch(() => ({}))) as {
+      email?: string;
+      invited?: boolean;
+      inviteError?: string | null;
+    };
+    lastInvite.value = {
+      email: data.email ?? newEmail.value,
+      invited: Boolean(data.invited),
+      inviteError: data.inviteError ?? null,
+    };
     newEmail.value = "";
     newName.value = "";
     newIsAdmin.value = false;
@@ -104,6 +115,24 @@ onMounted(refresh);
           <span>Grant admin access (can manage allowlist)</span>
         </label>
         <p v-if="error" class="text-sm text-coral">{{ error }}</p>
+        <div
+          v-if="lastInvite"
+          :class="[
+            'text-sm rounded border px-3 py-2',
+            lastInvite.invited
+              ? 'border-turquoise text-turquoise bg-turquoise/10'
+              : 'border-coral text-coral bg-coral/10',
+          ]"
+        >
+          <template v-if="lastInvite.invited">
+            Invitation email sent to {{ lastInvite.email }}.
+          </template>
+          <template v-else>
+            Added {{ lastInvite.email }} to allowlist, but invite email failed:
+            {{ lastInvite.inviteError ?? "unknown error" }}.
+            They can still sign in at /login by entering their email manually.
+          </template>
+        </div>
         <button
           type="submit"
           :disabled="submitting"

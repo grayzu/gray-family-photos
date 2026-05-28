@@ -105,3 +105,20 @@ Required env vars in Vercel project settings:
 - `SESSION_SECRET`
 - `RESEND_API_KEY` (optional locally; required in prod for real email)
 - `RESEND_FROM_EMAIL` (optional; defaults to onboarding@resend.dev)
+- `APP_BASE_URL` (optional; used as the link in invitation emails)
+
+## Email deliverability (IMPORTANT)
+
+Invitation emails and sign-in codes go through Resend.
+
+- If `RESEND_FROM_EMAIL` is left as the default `onboarding@resend.dev`,
+  Resend's free tier will **only deliver to the account owner's verified
+  email address**. Anyone else will silently fail to receive emails.
+- To send to family members, verify your domain at
+  https://resend.com/domains and set `RESEND_FROM_EMAIL` to an address
+  on that domain (e.g. `Gray Family Photos <noreply@grayszone.com>`).
+- Diagnose delivery problems with:
+  ```bash
+  npx tsx --env-file=.env.local scripts/check-resend.ts someone@example.com
+  ```
+  This lists verified domains on the account and sends a test email.

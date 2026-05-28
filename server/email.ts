@@ -55,3 +55,49 @@ This code expires in 15 minutes. If you didn't request it, you can safely ignore
   if (result.error) throw new Error(`resend error: ${result.error.message}`);
   return { id: result.data?.id ?? "unknown" };
 }
+
+export async function sendInviteEmail(to: string, name?: string, invitedBy?: string) {
+  const subject = `You're invited to Gray Family Photos`;
+  const greeting = name ? `Hi ${name},` : "Hi,";
+  const from = invitedBy ? ` by ${invitedBy}` : "";
+  const loginUrl = `${env.APP_BASE_URL}/login?email=${encodeURIComponent(to)}`;
+  const text = `${greeting}
+
+You've been invited${from} to Gray Family Photos.
+
+Visit the link below and enter your email to receive a sign-in code:
+
+    ${loginUrl}
+
+If you didn't expect this, you can safely ignore this email.`;
+
+  const html = `<!DOCTYPE html><html><body style="font-family: -apple-system, sans-serif; max-width: 480px; margin: 40px auto; color: #1f2937;">
+    <p>${greeting}</p>
+    <p>You've been invited${from} to <strong>Gray Family Photos</strong>.</p>
+    <p style="margin:24px 0;">
+      <a href="${loginUrl}" style="display:inline-block;padding:12px 20px;background:#2563eb;color:#fff;text-decoration:none;border-radius:6px;font-weight:500;">Sign in to view photos</a>
+    </p>
+    <p style="font-size:13px;color:#64748b;">Or open this link: <a href="${loginUrl}">${loginUrl}</a></p>
+    <p style="font-size:13px;color:#64748b;">If you didn't expect this, you can safely ignore this email.</p>
+  </body></html>`;
+
+  if (!resend) {
+    console.log(
+      `\n[email:dev-fallback] To: ${to}\nSubject: ${subject}\nLink: ${loginUrl}\n` +
+        (env.RESEND_API_KEY && !forceSendInDev
+          ? `(Resend disabled in dev. Set ALLOW_EMAIL_IN_DEV=1 to send real emails locally.)\n`
+          : ""),
+    );
+    return { id: "dev-fallback" };
+  }
+
+  const result = await resend.emails.send({
+    from: env.RESEND_FROM_EMAIL,
+    to,
+    subject,
+    text,
+    html,
+  });
+  if (result.error) throw new Error(`resend error: ${result.error.message}`);
+  return { id: result.data?.id ?? "unknown" };
+}
