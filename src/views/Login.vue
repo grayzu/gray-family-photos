@@ -51,13 +51,14 @@ function backToEmail() {
 </script>
 
 <template>
-  <div class="bg-forest-radial -mx-4 -my-8 px-4 py-16 min-h-[calc(100vh-4rem)]">
-    <div class="max-w-sm mx-auto bg-surface p-6 rounded-lg shadow-xl border border-border-subtle">
-      <h1 class="text-xl font-semibold mb-4 text-text-primary">Sign in</h1>
+  <div class="-mx-4 -my-8 px-4 py-24 min-h-[calc(100vh-4rem)] flex items-center justify-center">
+    <div class="max-w-sm mx-auto bg-surface/80 backdrop-blur-md p-8 rounded-2xl shadow-2xl border border-border-subtle w-full">
+      <h1 class="text-3xl font-display font-bold mb-6 text-text-primary text-center">Sign in</h1>
 
-      <form v-if="stage === 'email'" @submit.prevent="submitEmail" class="space-y-3">
+      <Transition name="fade" mode="out-in">
+      <form v-if="stage === 'email'" @submit.prevent="submitEmail" class="space-y-4">
         <label class="block">
-          <span class="text-sm text-text-muted">Email</span>
+          <span class="text-sm font-medium text-text-muted mb-1.5 block">Email address</span>
           <input
             data-test="email"
             v-model="email"
@@ -72,22 +73,21 @@ function backToEmail() {
           data-test="send-code"
           type="submit"
           :disabled="submitting"
-          class="w-full bg-accent hover:bg-accent-hover text-base font-medium rounded py-2 disabled:opacity-50 transition-colors"
+          class="w-full bg-accent hover:bg-accent-hover text-base font-medium rounded-lg py-2.5 disabled:opacity-50 transition-colors shadow-sm"
         >
           {{ submitting ? "Sending..." : "Send code" }}
         </button>
-        <p class="text-xs text-text-muted">
-          You'll receive a 6-digit code by email.
+        <p class="text-xs text-text-muted text-center pt-2">
+          You'll receive a secure 6-digit code by email.
         </p>
       </form>
 
-      <form v-else @submit.prevent="submitCode" class="space-y-3">
-        <p class="text-sm text-text-muted">
-          Sent a code to <span class="font-medium text-text-primary">{{ email }}</span>.
-          Check your inbox.
+      <form v-else @submit.prevent="submitCode" class="space-y-4">
+        <p class="text-sm text-text-muted text-center mb-6">
+          We sent a code to <br/><span class="font-medium text-text-primary">{{ email }}</span>
         </p>
         <label class="block">
-          <span class="text-sm text-text-muted">6-digit code</span>
+          <span class="sr-only">6-digit code</span>
           <input
             data-test="code"
             v-model="code"
@@ -97,26 +97,30 @@ function backToEmail() {
             inputmode="numeric"
             pattern="[0-9]{6}"
             maxlength="6"
-            class="mt-1 block w-full rounded bg-surface-2 border border-border-subtle px-3 py-2 font-mono text-lg tracking-widest text-center text-text-primary focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+            placeholder="000000"
+            class="block w-full rounded-lg bg-surface-2 border border-border-subtle px-3 py-3 font-mono text-2xl tracking-[0.5em] text-center text-text-primary focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
           />
         </label>
-        <p v-if="error" data-test="error" class="text-sm text-coral">{{ error }}</p>
+        <p v-if="error" data-test="error" class="text-sm text-coral text-center bg-coral/10 py-2 rounded">{{ error }}</p>
         <button
           data-test="verify"
           type="submit"
           :disabled="submitting || code.length !== 6"
-          class="w-full bg-accent hover:bg-accent-hover text-base font-medium rounded py-2 disabled:opacity-50 transition-colors"
+          class="w-full bg-accent hover:bg-accent-hover text-base font-medium rounded-lg py-2.5 disabled:opacity-50 transition-colors shadow-sm"
         >
-          {{ submitting ? "Verifying..." : "Sign in" }}
+          {{ submitting ? "Verifying..." : "Verify & Sign in" }}
         </button>
-        <button
-          type="button"
-          @click="backToEmail"
-          class="w-full text-sm text-text-muted hover:text-accent underline"
-        >
-          Use a different email
-        </button>
+        <div class="text-center pt-2">
+          <button
+            type="button"
+            @click="backToEmail"
+            class="text-sm text-text-muted hover:text-accent transition-colors"
+          >
+            Use a different email
+          </button>
+        </div>
       </form>
+      </Transition>
     </div>
   </div>
 </template>

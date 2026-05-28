@@ -6,6 +6,7 @@ import Lightbox, { type LightboxPhoto } from "@/components/Lightbox.vue";
 import MoveToAlbumModal from "@/components/MoveToAlbumModal.vue";
 import EditPhotoModal from "@/components/EditPhotoModal.vue";
 import AlbumThumbnailModal from "@/components/AlbumThumbnailModal.vue";
+import { useToastStore } from "@/stores/toast";
 
 type PhotoInAlbum = LightboxPhoto & {
   thumbnailUrl: string;
@@ -38,6 +39,8 @@ type AlbumDetail = {
 const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore();
+const toast = useToastStore();
+
 const isAdmin = computed(() => auth.isAdmin);
 const thumbnailModalOpen = ref(false);
 const album = ref<AlbumDetail | null>(null);
@@ -134,19 +137,24 @@ async function bulkDelete() {
     )
   )
     return;
-  const res = await fetch("/api/photos/bulk-delete", {
-    method: "POST",
-    credentials: "include",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ ids }),
-  });
-  if (res.ok) {
+
+  try {
+    const res = await fetch("/api/photos/bulk-delete", {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ids }),
+    });
+    if (!res.ok) throw new Error("delete failed");
+    toast.addToast(`${ids.length} photo${ids.length === 1 ? '' : 's'} deleted`, "success");
     exitSelectMode();
     if (album.value && album.value.photos.length === ids.length) {
       router.replace("/");
       return;
     }
     await load();
+  } catch (e: unknown) {
+    toast.addToast("Failed to delete photos", "error");
   }
 }
 
@@ -158,20 +166,25 @@ function startBulkMove() {
 async function onBulkMoveConfirm(targetAlbumId: string) {
   const ids = Array.from(selectedIds.value);
   if (ids.length === 0) return;
-  const res = await fetch("/api/photos/bulk-move", {
-    method: "POST",
-    credentials: "include",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ ids, albumId: targetAlbumId }),
-  });
-  moveModalPhotos.value = null;
-  if (res.ok) {
+  try {
+    const res = await fetch("/api/photos/bulk-move", {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ids, albumId: targetAlbumId }),
+    });
+    if (!res.ok) throw new Error("move failed");
+    toast.addToast(`${ids.length} photos moved successfully`, "success");
+    moveModalPhotos.value = null;
     exitSelectMode();
     if (album.value && album.value.photos.length === ids.length) {
       router.replace("/");
       return;
     }
     await load();
+  } catch (e: unknown) {
+    toast.addToast("Failed to move photos", "error");
+    moveModalPhotos.value = null;
   }
 }
 
@@ -188,17 +201,21 @@ async function deleteFromLightbox() {
   if (lightboxIdx.value === null || !album.value) return;
   const photo = album.value.photos[lightboxIdx.value]!;
   if (!confirm("Delete this photo? This cannot be undone.")) return;
-  const res = await fetch(`/api/photos/${photo.id}`, {
-    method: "DELETE",
-    credentials: "include",
-  });
-  if (res.ok) {
+  try {
+    const res = await fetch(`/api/photos/${photo.id}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+    if (!res.ok) throw new Error("delete failed");
+    toast.addToast("Photo deleted", "success");
     lightboxIdx.value = null;
     if (album.value.photos.length === 1) {
       router.replace("/");
       return;
     }
     await load();
+  } catch (e: unknown) {
+    toast.addToast("Failed to delete photo", "error");
   }
 }
 
@@ -212,20 +229,25 @@ function moveFromLightbox() {
 async function onSingleMoveConfirm(targetAlbumId: string) {
   if (!moveModalPhotos.value || moveModalPhotos.value.length === 0) return;
   const ids = moveModalPhotos.value.map((p) => p.id);
-  const res = await fetch("/api/photos/bulk-move", {
-    method: "POST",
-    credentials: "include",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ ids, albumId: targetAlbumId }),
-  });
-  moveModalPhotos.value = null;
-  if (res.ok) {
+  try {
+    const res = await fetch("/api/photos/bulk-move", {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ids, albumId: targetAlbumId }),
+    });
+    if (!res.ok) throw new Error("move failed");
+    toast.addToast("Photo moved successfully", "success");
+    moveModalPhotos.value = null;
     exitSelectMode();
     if (album.value && album.value.photos.length === ids.length) {
       router.replace("/");
       return;
     }
     await load();
+  } catch (e: unknown) {
+    toast.addToast("Failed to move photo", "error");
+    moveModalPhotos.value = null;
   }
 }
 
@@ -251,29 +273,44 @@ async function renameAlbum() {
   if (!newName) return;
   const trimmed = newName.trim();
   if (!trimmed || trimmed === album.value.name) return;
-  const res = await fetch(`/api/albums/${album.value.id}`, {
-    method: "PATCH",
-    credentials: "include",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ name: trimmed }),
-  });
-  if (res.ok) await load();
+  try {
+    const res = await fetch(`/api/albums/${album.value.id}`, {
+      method: "PATCH",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: trimmed }),
+    });
+    if (!res.ok) throw new Error("rename failed");
+    toast.addToast("Album renamed", "success");
+    await load();
+  } catch (e: unknown) {
+    toast.addToast(e instanceof Error ? e.message : "Rename failed", "error");
+  }
 }
 
 async function deleteAlbum() {
   if (!album.value) return;
   if (
-    !confirm(
-      `Delete the entire album "${album.value.name}" and all ${album.value.photos.length} photos? This cannot be undone.`,
+    !window.confirm(
+      `Delete album "${album.value.name}"?\n\nWARNING: All ${album.value.photos.length} photos in this album will also be permanently deleted. This cannot be undone.`,
     )
-  )
+  ) {
     return;
-  const res = await fetch(`/api/albums/${album.value.id}`, {
-    method: "DELETE",
-    credentials: "include",
-  });
-  if (res.ok) router.replace("/");
+  }
+  try {
+    const res = await fetch(`/api/albums/${album.value.id}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+    if (!res.ok) throw new Error("delete failed");
+    toast.addToast("Album deleted", "success");
+    router.replace("/");
+  } catch (e: unknown) {
+    toast.addToast(e instanceof Error ? e.message : "Delete failed", "error");
+  }
 }
+
+
 
 async function toggleSharePanel() {
   sharePanelOpen.value = !sharePanelOpen.value;
@@ -290,7 +327,11 @@ async function createShareLink() {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ albumId: album.value.id }),
     });
-    if (res.ok) await loadShareLinks();
+    if (!res.ok) throw new Error("Failed to create share link");
+    await loadShareLinks();
+    toast.addToast("Share link created", "success");
+  } catch (e: unknown) {
+    toast.addToast("Failed to create share link", "error");
   } finally {
     creatingShare.value = false;
   }
@@ -299,11 +340,17 @@ async function createShareLink() {
 async function revokeShare(token: string) {
   if (!confirm("Revoke this share link? Anyone using it will lose access."))
     return;
-  await fetch(`/api/share/${token}`, {
-    method: "DELETE",
-    credentials: "include",
-  });
-  await loadShareLinks();
+  try {
+    const res = await fetch(`/api/share/${token}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+    if (!res.ok) throw new Error("Failed to revoke share link");
+    await loadShareLinks();
+    toast.addToast("Share link revoked", "success");
+  } catch (e: unknown) {
+    toast.addToast("Failed to revoke share link", "error");
+  }
 }
 
 function shareUrl(token: string) {
@@ -311,7 +358,12 @@ function shareUrl(token: string) {
 }
 
 async function copyShareUrl(token: string) {
-  await navigator.clipboard.writeText(shareUrl(token));
+  try {
+    await navigator.clipboard.writeText(shareUrl(token));
+    toast.addToast("Link copied to clipboard", "success");
+  } catch (e: unknown) {
+    toast.addToast("Failed to copy link", "error");
+  }
 }
 
 function onKeyDown(e: KeyboardEvent) {
@@ -330,23 +382,32 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
 
 <template>
   <div>
-    <RouterLink to="/" class="text-sm text-text-muted hover:text-accent">
-      ← Albums
+    <RouterLink to="/" class="text-sm font-medium text-text-muted hover:text-accent transition-colors flex items-center gap-1 w-max">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+      Back to Albums
     </RouterLink>
 
-    <p v-if="loading" class="mt-6 text-text-muted">Loading...</p>
-    <p v-else-if="error" class="mt-6 text-coral">{{ error }}</p>
+    <div v-if="loading" class="mt-6 animate-pulse">
+      <div class="h-8 bg-surface-2 rounded w-48 mb-2"></div>
+      <div class="h-4 bg-surface-2 rounded w-32 mb-6"></div>
+      <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
+        <div v-for="i in 12" :key="i" class="aspect-square bg-surface-2 rounded-lg"></div>
+      </div>
+    </div>
+
+    <p v-else-if="error" class="mt-6 text-coral bg-coral/10 p-4 rounded-lg border border-coral/20">{{ error }}</p>
+    
     <div v-else-if="album" class="mt-4">
-      <div class="flex items-baseline justify-between mb-1 gap-3">
-        <h1 class="text-2xl font-semibold text-text-primary truncate" data-test="album-name">
+      <div class="flex flex-col sm:flex-row sm:items-baseline justify-between mb-1 gap-3">
+        <h1 class="text-3xl font-display font-bold text-text-primary truncate" data-test="album-name">
           {{ album.name }}
         </h1>
-        <div class="relative flex items-center gap-3 text-sm shrink-0">
+        <div class="relative flex items-center gap-4 text-sm shrink-0">
           <RouterLink
             v-if="!selectMode && album"
             :to="`/upload?albumId=${album.id}`"
             data-test="upload-to-album"
-            class="text-text-muted hover:text-text-primary"
+            class="text-text-muted hover:text-accent font-medium transition-colors"
           >
             + Upload
           </RouterLink>
@@ -504,13 +565,26 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
         </ul>
       </div>
 
-      <p
+      <div
         v-if="album.photos.length === 0"
-        class="text-text-muted"
+        class="flex flex-col items-center justify-center py-20 px-4 text-center bg-surface/50 rounded-2xl border border-border-subtle"
         data-test="empty"
       >
-        This album is empty.
-      </p>
+        <div class="w-16 h-16 bg-surface-2 rounded-full flex items-center justify-center mb-4 text-text-muted">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          </svg>
+        </div>
+        <h3 class="text-xl font-display font-medium text-text-primary mb-2">This album is empty</h3>
+        <p class="text-text-muted mb-6">Upload photos to add them to this album.</p>
+        <RouterLink
+          v-if="isAdmin"
+          :to="`/upload?albumId=${album.id}`"
+          class="bg-surface-2 hover:bg-border-subtle text-text-primary font-medium px-6 py-2.5 rounded-lg text-sm transition-colors border border-border-subtle"
+        >
+          Upload photos
+        </RouterLink>
+      </div>
       <div
         v-else
         data-test="album-photo-grid"

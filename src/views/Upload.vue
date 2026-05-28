@@ -311,8 +311,8 @@ function statusLabel(s: Status) {
 </script>
 
 <template>
-  <div class="max-w-2xl mx-auto bg-surface p-6 rounded-lg shadow border border-border-subtle">
-    <h1 class="text-xl font-semibold mb-4 text-text-primary">Upload photos</h1>
+  <div class="max-w-2xl mx-auto bg-surface/80 backdrop-blur p-8 rounded-2xl shadow-xl border border-border-subtle">
+    <h1 class="text-2xl font-display font-semibold mb-6 text-text-primary">Upload photos</h1>
 
     <div
       v-if="targetAlbumName"

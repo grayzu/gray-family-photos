@@ -86,108 +86,148 @@ watch(
 
 function formatDate(taken: number | null) {
   if (!taken) return "Date unknown";
-  return new Date(taken * 1000).toLocaleString();
+  return new Intl.DateTimeFormat("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(taken * 1000));
 }
 </script>
 
 <template>
-  <div
-    v-if="current !== null && index !== null"
-    class="fixed inset-0 z-50 bg-black/90 flex items-center justify-center select-none"
-    data-test="lightbox"
-    @click="emit('close')"
-    @touchstart="onTouchStart"
-    @touchend="onTouchEnd"
-  >
-    <button
-      data-test="lightbox-prev"
-      @click.stop="prev"
-      aria-label="Previous"
-      class="absolute left-2 sm:left-4 top-1/2 -translate-y-1/2 text-white text-3xl bg-black/40 hover:bg-black/70 w-12 h-12 rounded-full flex items-center justify-center"
+  <Transition name="lightbox">
+    <div
+      v-if="current !== null && index !== null"
+      class="fixed inset-0 z-50 bg-black/95 backdrop-blur-sm flex items-center justify-center select-none"
+      data-test="lightbox"
+      @click="emit('close')"
+      @touchstart="onTouchStart"
+      @touchend="onTouchEnd"
     >
-      ‹
-    </button>
-
-    <button
-      data-test="lightbox-next"
-      @click.stop="next"
-      aria-label="Next"
-      class="absolute right-2 sm:right-4 top-1/2 -translate-y-1/2 text-white text-3xl bg-black/40 hover:bg-black/70 w-12 h-12 rounded-full flex items-center justify-center"
-    >
-      ›
-    </button>
-
-    <button
-      data-test="lightbox-close"
-      @click.stop="emit('close')"
-      aria-label="Close"
-      class="absolute top-4 right-4 text-white bg-black/40 hover:bg-black/70 w-10 h-10 rounded-full flex items-center justify-center"
-    >
-      ✕
-    </button>
-
-    <div v-if="showActions" class="absolute top-4 right-16 flex items-center">
       <button
-        @click.stop="menuOpen = !menuOpen"
-        data-test="lightbox-menu"
-        aria-label="Photo options"
-        class="text-white bg-black/40 hover:bg-black/70 w-10 h-10 rounded-full flex items-center justify-center text-xl"
+        data-test="lightbox-prev"
+        @click.stop="prev"
+        aria-label="Previous"
+        class="absolute left-2 sm:left-4 top-1/2 -translate-y-1/2 text-white text-3xl bg-black/40 hover:bg-black/70 w-12 h-12 rounded-full flex items-center justify-center"
       >
-        ⋯
+        ‹
       </button>
-      <div
-        v-if="menuOpen"
-        class="absolute right-0 top-12 bg-surface border border-border-subtle rounded shadow-lg py-1 min-w-[140px]"
-        @click.stop
+
+      <button
+        data-test="lightbox-next"
+        @click.stop="next"
+        aria-label="Next"
+        class="absolute right-2 sm:right-4 top-1/2 -translate-y-1/2 text-white text-3xl bg-black/40 hover:bg-black/70 w-12 h-12 rounded-full flex items-center justify-center"
       >
+        ›
+      </button>
+
+      <button
+        data-test="lightbox-close"
+        @click.stop="emit('close')"
+        aria-label="Close"
+        class="absolute top-4 right-4 text-white bg-black/40 hover:bg-black/70 w-10 h-10 rounded-full flex items-center justify-center"
+      >
+        ✕
+      </button>
+
+      <div v-if="showActions" class="absolute top-4 right-16 flex items-center">
         <button
-          @click="menuOpen = false; emit('edit')"
-          data-test="lightbox-edit"
-          class="block w-full text-left px-3 py-2 text-sm text-text-primary hover:bg-surface-2"
+          @click.stop="menuOpen = !menuOpen"
+          data-test="lightbox-menu"
+          aria-label="Photo options"
+          class="text-white bg-black/40 hover:bg-black/70 w-10 h-10 rounded-full flex items-center justify-center text-xl"
         >
-          Edit
+          ⋯
         </button>
-        <button
-          @click="menuOpen = false; emit('move')"
-          data-test="lightbox-move"
-          class="block w-full text-left px-3 py-2 text-sm text-text-primary hover:bg-surface-2"
+        <div
+          v-if="menuOpen"
+          class="absolute right-0 top-12 bg-surface border border-border-subtle rounded shadow-lg py-1 min-w-[140px]"
+          @click.stop
         >
-          Move
-        </button>
-        <button
-          @click="menuOpen = false; emit('delete')"
-          data-test="lightbox-delete"
-          class="block w-full text-left px-3 py-2 text-sm text-coral hover:bg-surface-2"
+          <button
+            @click="
+              menuOpen = false;
+              emit('edit');
+            "
+            data-test="lightbox-edit"
+            class="block w-full text-left px-3 py-2 text-sm text-text-primary hover:bg-surface-2"
+          >
+            Edit
+          </button>
+          <button
+            @click="
+              menuOpen = false;
+              emit('move');
+            "
+            data-test="lightbox-move"
+            class="block w-full text-left px-3 py-2 text-sm text-text-primary hover:bg-surface-2"
+          >
+            Move
+          </button>
+          <button
+            @click="
+              menuOpen = false;
+              emit('delete');
+            "
+            data-test="lightbox-delete"
+            class="block w-full text-left px-3 py-2 text-sm text-coral hover:bg-surface-2"
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+
+      <div
+        class="absolute top-4 left-4 text-white text-sm bg-black/40 px-3 py-1 rounded"
+      >
+        {{ index + 1 }} / {{ photos.length }}
+      </div>
+
+      <img
+        :src="current.originalUrl"
+        :alt="`Photo ${current.id}`"
+        class="max-w-[95vw] max-h-[90vh] object-contain pointer-events-none"
+        @click.stop
+      />
+
+      <div
+        class="absolute bottom-4 left-1/2 -translate-x-1/2 text-white text-sm bg-black/50 px-3 py-2 rounded flex items-center gap-3"
+      >
+        <span>{{ formatDate(current.takenAt) }}</span>
+        <a
+          :href="current.originalUrl"
+          :download="`photo-${current.id}.jpg`"
+          target="_blank"
+          rel="noopener"
+          @click.stop
+          class="underline hover:no-underline"
+          data-test="lightbox-download"
         >
-          Delete
-        </button>
+          Download
+        </a>
       </div>
     </div>
-
-    <div class="absolute top-4 left-4 text-white text-sm bg-black/40 px-3 py-1 rounded">
-      {{ index + 1 }} / {{ photos.length }}
-    </div>
-
-    <img
-      :src="current.originalUrl"
-      :alt="`Photo ${current.id}`"
-      class="max-w-[95vw] max-h-[90vh] object-contain pointer-events-none"
-      @click.stop
-    />
-
-    <div class="absolute bottom-4 left-1/2 -translate-x-1/2 text-white text-sm bg-black/50 px-3 py-2 rounded flex items-center gap-3">
-      <span>{{ formatDate(current.takenAt) }}</span>
-      <a
-        :href="current.originalUrl"
-        :download="`photo-${current.id}.jpg`"
-        target="_blank"
-        rel="noopener"
-        @click.stop
-        class="underline hover:no-underline"
-        data-test="lightbox-download"
-      >
-        Download
-      </a>
-    </div>
-  </div>
+  </Transition>
 </template>
+
+<style scoped>
+.lightbox-enter-active,
+.lightbox-leave-active {
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.lightbox-enter-from,
+.lightbox-leave-to {
+  opacity: 0;
+}
+.lightbox-enter-from img {
+  transform: scale(0.95);
+}
+.lightbox-leave-to img {
+  transform: scale(0.98);
+}
+</style>

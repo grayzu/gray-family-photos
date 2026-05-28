@@ -83,15 +83,15 @@ onMounted(refresh);
 </script>
 
 <template>
-  <div class="max-w-2xl mx-auto space-y-6">
-    <div class="bg-surface p-6 rounded-lg shadow border border-border-subtle">
-      <h1 class="text-xl font-semibold mb-2 text-text-primary">Invite family member</h1>
-      <p class="text-sm text-text-muted mb-4">
+  <div class="max-w-2xl mx-auto space-y-8">
+    <div class="bg-surface/80 backdrop-blur p-8 rounded-2xl shadow-xl border border-border-subtle">
+      <h1 class="text-2xl font-display font-semibold mb-2 text-text-primary">Invite family member</h1>
+      <p class="text-sm text-text-muted mb-6">
         Adding an email to the allowlist lets that person sign in with a code
         sent to their inbox. The first time they sign in, an account is
         created automatically.
       </p>
-      <form @submit.prevent="add" class="space-y-3">
+      <form @submit.prevent="add" class="space-y-4">
         <label class="block">
           <span class="text-sm text-text-muted">Email</span>
           <input
@@ -136,26 +136,36 @@ onMounted(refresh);
         <button
           type="submit"
           :disabled="submitting"
-          class="w-full bg-accent hover:bg-accent-hover text-base font-medium rounded py-2 disabled:opacity-50 transition-colors"
+          class="w-full bg-accent hover:bg-accent-hover text-base font-medium rounded-lg py-2.5 disabled:opacity-50 transition-colors shadow-sm"
         >
-          Add
+          {{ submitting ? "Inviting..." : "Send invite" }}
         </button>
       </form>
     </div>
 
-    <div class="bg-surface p-6 rounded-lg shadow border border-border-subtle">
-      <h2 class="text-lg font-semibold mb-3 text-text-primary">Allowlist (pending first sign-in)</h2>
-      <p v-if="loading" class="text-text-muted">Loading...</p>
-      <p v-else-if="list.length === 0" class="text-text-muted">
+    <div class="bg-surface/80 backdrop-blur p-8 rounded-2xl shadow-xl border border-border-subtle">
+      <h2 class="text-xl font-display font-semibold mb-4 text-text-primary">Allowlist (pending first sign-in)</h2>
+      
+      <div v-if="loading" class="animate-pulse space-y-4">
+        <div v-for="i in 3" :key="i" class="flex items-center justify-between py-3 border-b border-border-subtle">
+          <div>
+            <div class="h-4 bg-surface-2 rounded w-32 mb-2"></div>
+            <div class="h-3 bg-surface-2 rounded w-48"></div>
+          </div>
+          <div class="h-4 bg-surface-2 rounded w-12"></div>
+        </div>
+      </div>
+      
+      <p v-else-if="list.length === 0" class="text-text-muted bg-surface-2/50 py-8 text-center rounded-lg border border-border-subtle">
         No pending invitations.
       </p>
       <ul v-else class="divide-y divide-border-subtle">
         <li v-for="row in list" :key="row.email" class="py-3 flex items-center justify-between">
           <div>
             <div class="font-medium text-text-primary">{{ row.name }}</div>
-            <div class="text-sm text-text-muted">{{ row.email }}<span v-if="row.isAdmin" class="ml-2 text-xs text-turquoise">admin</span></div>
+            <div class="text-sm text-text-muted mt-0.5">{{ row.email }}<span v-if="row.isAdmin" class="ml-2 text-xs text-turquoise bg-turquoise/10 px-2 py-0.5 rounded-full">admin</span></div>
           </div>
-          <button @click="remove(row.email)" class="text-sm text-coral hover:underline">
+          <button @click="remove(row.email)" class="text-sm text-coral hover:text-coral/80 transition-colors">
             Remove
           </button>
         </li>

@@ -26,7 +26,9 @@ const submitting = ref(false);
 const error = ref<string | null>(null);
 
 const requiredCount = computed(() => (mode.value === "single" ? 1 : 4));
-const canConfirm = computed(() => selectedIds.value.length === requiredCount.value);
+const canConfirm = computed(
+  () => selectedIds.value.length === requiredCount.value,
+);
 
 watch(
   () => props.open,
@@ -104,101 +106,134 @@ async function save() {
 </script>
 
 <template>
-  <div
-    v-if="open"
-    class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
-    data-test="thumbnail-modal"
-  >
-    <div class="bg-surface rounded-lg shadow-xl border border-border-subtle max-w-2xl w-full p-6">
-      <h2 class="text-lg font-semibold mb-1 text-text-primary">Set album thumbnail</h2>
-      <p class="text-sm text-text-muted mb-4">
-        Pick a single photo for the cover, or four photos for a 2×2 collage.
-      </p>
-
-      <div class="flex gap-2 mb-4 text-sm">
-        <button
-          type="button"
-          @click="setMode('single')"
-          data-test="thumbnail-mode-single"
-          :class="[
-            'px-3 py-1.5 rounded border',
-            mode === 'single'
-              ? 'bg-accent text-base border-accent'
-              : 'text-text-primary border-border-subtle hover:border-accent',
-          ]"
-        >
-          Single (1 photo)
-        </button>
-        <button
-          type="button"
-          @click="setMode('collage')"
-          data-test="thumbnail-mode-collage"
-          :class="[
-            'px-3 py-1.5 rounded border',
-            mode === 'collage'
-              ? 'bg-accent text-base border-accent'
-              : 'text-text-primary border-border-subtle hover:border-accent',
-          ]"
-        >
-          Collage (4 photos)
-        </button>
-        <div class="flex-1"></div>
-        <span class="text-text-muted self-center">
-          {{ selectedIds.length }} / {{ requiredCount }} selected
-        </span>
-      </div>
-
+  <Transition name="modal">
+    <div
+      v-if="open"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+      data-test="thumbnail-modal"
+    >
       <div
-        class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2 max-h-[50vh] overflow-y-auto p-1"
+        class="bg-surface rounded-xl shadow-2xl border border-border-subtle max-w-2xl w-full p-6 modal-content"
       >
-        <button
-          v-for="p in photos"
-          :key="p.id"
-          type="button"
-          @click="toggle(p.id)"
-          :class="[
-            'relative block aspect-square overflow-hidden rounded border-2 transition-colors',
-            selectedIds.includes(p.id)
-              ? 'border-accent'
-              : 'border-border-subtle hover:border-accent/60',
-          ]"
-          data-test="thumbnail-photo"
-        >
-          <img
-            :src="p.thumbnailUrl"
-            :alt="`Photo ${p.id}`"
-            loading="lazy"
-            class="w-full h-full object-cover"
-          />
-          <span
-            v-if="selectedIds.includes(p.id)"
-            class="absolute top-1 right-1 w-6 h-6 rounded-full bg-accent text-base text-xs font-medium flex items-center justify-center"
+        <h2 class="text-lg font-semibold mb-1 text-text-primary">
+          Set album thumbnail
+        </h2>
+        <p class="text-sm text-text-muted mb-4">
+          Pick a single photo for the cover, or four photos for a 2×2 collage.
+        </p>
+
+        <div class="flex gap-2 mb-4 text-sm">
+          <button
+            type="button"
+            @click="setMode('single')"
+            data-test="thumbnail-mode-single"
+            :class="[
+              'px-3 py-1.5 rounded border',
+              mode === 'single'
+                ? 'bg-accent text-base border-accent'
+                : 'text-text-primary border-border-subtle hover:border-accent',
+            ]"
           >
-            {{ mode === "collage" ? orderIndex(p.id) : "✓" }}
+            Single (1 photo)
+          </button>
+          <button
+            type="button"
+            @click="setMode('collage')"
+            data-test="thumbnail-mode-collage"
+            :class="[
+              'px-3 py-1.5 rounded border',
+              mode === 'collage'
+                ? 'bg-accent text-base border-accent'
+                : 'text-text-primary border-border-subtle hover:border-accent',
+            ]"
+          >
+            Collage (4 photos)
+          </button>
+          <div class="flex-1"></div>
+          <span class="text-text-muted self-center">
+            {{ selectedIds.length }} / {{ requiredCount }} selected
           </span>
-        </button>
-      </div>
+        </div>
 
-      <p v-if="error" class="text-sm text-coral mt-3" data-test="thumbnail-error">{{ error }}</p>
+        <div
+          class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2 max-h-[50vh] overflow-y-auto p-1"
+        >
+          <button
+            v-for="p in photos"
+            :key="p.id"
+            type="button"
+            @click="toggle(p.id)"
+            :class="[
+              'relative block aspect-square overflow-hidden rounded border-2 transition-colors',
+              selectedIds.includes(p.id)
+                ? 'border-accent'
+                : 'border-border-subtle hover:border-accent/60',
+            ]"
+            data-test="thumbnail-photo"
+          >
+            <img
+              :src="p.thumbnailUrl"
+              :alt="`Photo ${p.id}`"
+              loading="lazy"
+              class="w-full h-full object-cover"
+            />
+            <span
+              v-if="selectedIds.includes(p.id)"
+              class="absolute top-1 right-1 w-6 h-6 rounded-full bg-accent text-base text-xs font-medium flex items-center justify-center"
+            >
+              {{ mode === "collage" ? orderIndex(p.id) : "✓" }}
+            </span>
+          </button>
+        </div>
 
-      <div class="flex justify-end gap-2 mt-5">
-        <button
-          type="button"
-          @click="emit('cancel')"
-          class="px-4 py-2 text-sm text-text-muted hover:text-text-primary"
+        <p
+          v-if="error"
+          class="text-sm text-coral mt-3"
+          data-test="thumbnail-error"
         >
-          Cancel
-        </button>
-        <button
-          type="button"
-          @click="save"
-          :disabled="!canConfirm || submitting"
-          data-test="thumbnail-save"
-          class="px-4 py-2 text-sm bg-accent hover:bg-accent-hover text-base font-medium rounded disabled:opacity-50 transition-colors"
-        >
-          {{ submitting ? "Saving..." : "Save thumbnail" }}
-        </button>
+          {{ error }}
+        </p>
+
+        <div class="flex justify-end gap-2 mt-5">
+          <button
+            type="button"
+            @click="emit('cancel')"
+            class="px-4 py-2 text-sm text-text-muted hover:text-text-primary"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            @click="save"
+            :disabled="!canConfirm || submitting"
+            data-test="thumbnail-save"
+            class="px-4 py-2 text-sm bg-accent hover:bg-accent-hover text-base font-medium rounded disabled:opacity-50 transition-colors"
+          >
+            {{ submitting ? "Saving..." : "Save thumbnail" }}
+          </button>
+        </div>
       </div>
     </div>
-  </div>
+  </Transition>
 </template>
+
+<style scoped>
+.modal-enter-active,
+.modal-leave-active {
+  transition: opacity 0.2s ease;
+}
+.modal-enter-active .modal-content,
+.modal-leave-active .modal-content {
+  transition: transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+.modal-enter-from,
+.modal-leave-to {
+  opacity: 0;
+}
+.modal-enter-from .modal-content {
+  transform: scale(0.95) translateY(10px);
+}
+.modal-leave-to .modal-content {
+  transform: scale(0.95) translateY(10px);
+}
+</style>

@@ -2,6 +2,7 @@
 import { RouterLink, RouterView, useRouter, useRoute } from "vue-router";
 import { useAuthStore } from "@/stores/auth";
 import { onMounted, ref, watch } from "vue";
+import ToastContainer from "@/components/ToastContainer.vue";
 
 const auth = useAuthStore();
 const router = useRouter();
@@ -24,10 +25,11 @@ watch(() => route.fullPath, () => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-base text-text-primary">
-    <header v-if="auth.isAuthenticated" class="border-b border-border-subtle bg-surface">
+  <div class="min-h-screen bg-forest-radial bg-fixed bg-base text-text-primary font-sans antialiased">
+    <ToastContainer />
+    <header v-if="auth.isAuthenticated" class="border-b border-border-subtle bg-surface/80 backdrop-blur sticky top-0 z-40">
       <nav class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-        <RouterLink to="/" class="font-semibold text-lg text-accent">Gray Family Photos</RouterLink>
+        <RouterLink to="/" class="font-display font-semibold text-xl text-accent hover:text-accent-hover transition-colors">Gray Family Photos</RouterLink>
 
         <div class="hidden md:flex items-center gap-4 text-sm">
           <RouterLink to="/" class="text-text-muted hover:text-text-primary" active-class="text-text-primary">
@@ -108,8 +110,24 @@ watch(() => route.fullPath, () => {
         </div>
       </div>
     </header>
-    <main class="max-w-6xl mx-auto px-4 py-8">
-      <RouterView />
+    <main class="max-w-6xl mx-auto px-4 py-8 relative">
+      <RouterView v-slot="{ Component }">
+        <transition name="fade" mode="out-in">
+          <component :is="Component" />
+        </transition>
+      </RouterView>
     </main>
   </div>
 </template>
+
+<style>
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.15s ease-out;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+</style>
