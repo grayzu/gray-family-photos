@@ -314,6 +314,14 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
           {{ album.name }}
         </h1>
         <div class="relative flex items-center gap-3 text-sm shrink-0">
+          <RouterLink
+            v-if="!selectMode && album"
+            :to="`/upload?albumId=${album.id}`"
+            data-test="upload-to-album"
+            class="text-text-muted hover:text-text-primary"
+          >
+            + Upload
+          </RouterLink>
           <button
             v-if="!selectMode"
             @click="enterSelectMode()"

@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
-import { useRouter } from "vue-router";
+import { computed, onMounted, ref } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import LocationPromptModal, {
   type LocationCandidate,
 } from "@/components/LocationPromptModal.vue";
@@ -27,9 +27,41 @@ type Job = {
 };
 
 const router = useRouter();
+const route = useRoute();
 const jobs = ref<Job[]>([]);
 const promptingLocationIdx = ref<number | null>(null);
 const promptingDateIdx = ref<number | null>(null);
+
+const targetAlbumId = ref<string | null>(null);
+const targetAlbumName = ref<string | null>(null);
+
+async function loadTargetAlbum(id: string) {
+  try {
+    const res = await fetch(`/api/albums/${id}`, { credentials: "include" });
+    if (res.ok) {
+      const a = (await res.json()) as { id: string; name: string };
+      targetAlbumId.value = a.id;
+      targetAlbumName.value = a.name;
+    } else {
+      targetAlbumId.value = null;
+      targetAlbumName.value = null;
+    }
+  } catch {
+    targetAlbumId.value = null;
+    targetAlbumName.value = null;
+  }
+}
+
+function clearTargetAlbum() {
+  targetAlbumId.value = null;
+  targetAlbumName.value = null;
+  router.replace({ path: "/upload" });
+}
+
+onMounted(() => {
+  const q = route.query.albumId;
+  if (typeof q === "string" && q) loadTargetAlbum(q);
+});
 const overallProgress = computed(() => {
   if (jobs.value.length === 0) return null;
   const done = jobs.value.filter(
@@ -111,7 +143,11 @@ async function startBatch() {
     await uploadOne(i);
   }
   if (allDone.value && jobs.value.every((j) => j.status === "done")) {
-    router.push("/");
+    if (targetAlbumId.value) {
+      router.push(`/albums/${targetAlbumId.value}`);
+    } else {
+      router.push("/");
+    }
   }
 }
 
@@ -179,6 +215,7 @@ async function uploadOne(i: number) {
         locationDisplay: job.location?.display ?? null,
         locationName: job.location?.name ?? null,
         locationCountry: job.location?.countryCode ?? null,
+        targetAlbumId: targetAlbumId.value,
       }),
     });
     if (!commitRes.ok) {
@@ -247,6 +284,24 @@ function statusLabel(s: Status) {
 <template>
   <div class="max-w-2xl mx-auto bg-surface p-6 rounded-lg shadow border border-border-subtle">
     <h1 class="text-xl font-semibold mb-4 text-text-primary">Upload photos</h1>
+
+    <div
+      v-if="targetAlbumName"
+      data-test="target-album-banner"
+      class="flex items-center justify-between gap-3 mb-4 px-3 py-2 rounded border border-accent/40 bg-accent/10 text-sm"
+    >
+      <span class="text-text-primary truncate">
+        Uploading to
+        <span class="font-medium text-accent">{{ targetAlbumName }}</span>
+      </span>
+      <button
+        type="button"
+        @click="clearTargetAlbum"
+        class="text-text-muted hover:text-text-primary text-xs"
+      >
+        Clear
+      </button>
+    </div>
     <input
       data-test="files"
       type="file"

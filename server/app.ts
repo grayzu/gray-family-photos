@@ -589,9 +589,39 @@ export function buildApp() {
           .from(photos)
           .where(eq(photos.id, id))
           .limit(1);
-        const albumId = inserted[0]
-          ? await assignPhotoToAlbum(inserted[0])
-          : null;
+
+        const targetAlbumId =
+          typeof body.targetAlbumId === "string" ? body.targetAlbumId : null;
+        let albumId: string | null = null;
+
+        if (targetAlbumId) {
+          const ownsTarget = await db
+            .select({ id: photos.id })
+            .from(photos)
+            .where(
+              and(
+                eq(photos.albumId, targetAlbumId),
+                eq(photos.userId, user.id),
+              ),
+            )
+            .limit(1);
+          const targetExists = await db
+            .select()
+            .from(albums)
+            .where(eq(albums.id, targetAlbumId))
+            .limit(1);
+          if (ownsTarget.length > 0 && targetExists.length > 0) {
+            await db
+              .update(photos)
+              .set({ albumId: targetAlbumId })
+              .where(eq(photos.id, id));
+            albumId = targetAlbumId;
+          }
+        }
+
+        if (!albumId && inserted[0]) {
+          albumId = await assignPhotoToAlbum(inserted[0]);
+        }
 
         return c.json(
           {
