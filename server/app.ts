@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, sql, inArray } from "drizzle-orm";
 import { randomBytes } from "node:crypto";
 import { db } from "./db/client.js";
 import { users, allowedEmails, photos, albums, shareLinks } from "./db/schema.js";
@@ -737,6 +737,76 @@ export function buildApp() {
           await maybeDeleteEmptyAlbum(p.albumId);
         }
         return c.json({ ok: true });
+      })
+      .post("/bulk-delete", async (c) => {
+        const user = c.get("user");
+        const body = await c.req.json().catch(() => null);
+        const ids = Array.isArray((body as Record<string, unknown> | null)?.ids)
+          ? ((body as Record<string, unknown>).ids as unknown[]).filter(
+              (x): x is string => typeof x === "string",
+            )
+          : [];
+        if (ids.length === 0) return c.json({ error: "ids required" }, 400);
+
+        const owned = await db
+          .select()
+          .from(photos)
+          .where(and(eq(photos.userId, user.id), inArray(photos.id, ids)));
+
+        const affectedAlbums = new Set<string>();
+        for (const p of owned) {
+          await deleteObject(p.r2OriginalKey).catch(() => undefined);
+          if (p.albumId) affectedAlbums.add(p.albumId);
+        }
+        await db
+          .delete(photos)
+          .where(and(eq(photos.userId, user.id), inArray(photos.id, ids)));
+        for (const albumId of affectedAlbums) {
+          await maybeFixAlbumCover(albumId);
+          await maybeDeleteEmptyAlbum(albumId);
+        }
+        return c.json({ ok: true, deleted: owned.length });
+      })
+      .post("/bulk-move", async (c) => {
+        const user = c.get("user");
+        const body = (await c.req.json().catch(() => null)) as Record<
+          string,
+          unknown
+        > | null;
+        const ids = Array.isArray(body?.ids)
+          ? (body.ids as unknown[]).filter((x): x is string => typeof x === "string")
+          : [];
+        const targetAlbumId =
+          typeof body?.albumId === "string" ? body.albumId : null;
+        if (ids.length === 0 || !targetAlbumId) {
+          return c.json({ error: "ids and albumId required" }, 400);
+        }
+        const targetAlbum = await db
+          .select()
+          .from(albums)
+          .where(eq(albums.id, targetAlbumId))
+          .limit(1);
+        if (!targetAlbum[0]) return c.json({ error: "album not found" }, 404);
+
+        const owned = await db
+          .select()
+          .from(photos)
+          .where(and(eq(photos.userId, user.id), inArray(photos.id, ids)));
+        const sourceAlbums = new Set(
+          owned.map((p) => p.albumId).filter((x): x is string => !!x),
+        );
+
+        await db
+          .update(photos)
+          .set({ albumId: targetAlbumId })
+          .where(and(eq(photos.userId, user.id), inArray(photos.id, ids)));
+
+        for (const albumId of sourceAlbums) {
+          if (albumId === targetAlbumId) continue;
+          await maybeFixAlbumCover(albumId);
+          await maybeDeleteEmptyAlbum(albumId);
+        }
+        return c.json({ ok: true, moved: owned.length });
       }),
   );
 

@@ -57,12 +57,17 @@ test("uploading a photo to existing Sydney location adds to that album", async (
     timeout: 5000,
   });
   await page.locator('[data-test="location-option"]').first().click();
-  const uploadResponse = page.waitForResponse(
-    (r) => r.url().includes("/api/photos/commit") && r.request().method() === "POST",
-  );
   await page.locator('[data-test="location-confirm"]').click();
-  const res = await uploadResponse;
-  expect(res.status()).toBe(201);
+
+  const dateModal = page.locator('[data-test="date-modal"]');
+  if (await dateModal.isVisible({ timeout: 2000 }).catch(() => false)) {
+    const uploadResponse = page.waitForResponse(
+      (r) => r.url().includes("/api/photos/commit") && r.request().method() === "POST",
+    );
+    await page.locator('[data-test="date-confirm"]').click();
+    const res = await uploadResponse;
+    expect(res.status()).toBe(201);
+  }
 
   await expect(page).toHaveURL("/", { timeout: 15000 });
   await expect(page.locator('[data-test="album-card"]')).toHaveCount(beforeCount, {

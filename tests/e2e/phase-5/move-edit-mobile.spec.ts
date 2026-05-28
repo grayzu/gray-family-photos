@@ -34,10 +34,16 @@ async function uploadAt(
     timeout: 5000,
   });
   await page.locator('[data-test="location-option"]').first().click();
+  await page.locator('[data-test="location-confirm"]').click();
+
+  const dateModal = page.locator('[data-test="date-modal"]');
+  if (await dateModal.isVisible().catch(() => false)) {
+    await page.locator('[data-test="date-confirm"]').click();
+  }
+
   const uploadRes = page.waitForResponse(
     (r) => r.url().includes("/api/photos/commit") && r.request().method() === "POST",
   );
-  await page.locator('[data-test="location-confirm"]').click();
   await uploadRes;
   await expect(page).toHaveURL("/", { timeout: 15000 });
 }
@@ -54,11 +60,9 @@ test("edit photo metadata changes location and moves to new album", async ({ pag
   await melbourneCard.click();
   await expect(page.locator('[data-test="album-photo"]').first()).toBeVisible();
 
-  await page
-    .locator('[data-test="album-photo"]')
-    .first()
-    .locator('[data-test="photo-edit"]')
-    .click({ force: true });
+  await page.locator('[data-test="enter-select"]').click();
+  await page.locator('[data-test="album-photo"]').first().click();
+  await page.locator('[data-test="bulk-edit"]').click();
   await expect(page.locator('[data-test="edit-modal"]')).toBeVisible();
   await page.locator('[data-test="edit-location-change"]').click();
   await expect(page.locator('[data-test="location-modal"]')).toBeVisible();
@@ -78,7 +82,7 @@ test("edit photo metadata changes location and moves to new album", async ({ pag
   expect(res.status()).toBe(200);
 });
 
-test("move photo to another album via Move button", async ({ page }) => {
+test("move photo to another album via bulk Move", async ({ page }) => {
   await loginAs(page, ADMIN_EMAIL);
   await uploadAt(page, "perth");
   await uploadAt(page, "perth");
@@ -92,15 +96,15 @@ test("move photo to another album via Move button", async ({ page }) => {
     timeout: 10000,
   });
 
-  await page
-    .locator('[data-test="album-photo"]')
-    .first()
-    .locator('[data-test="photo-move"]')
-    .click({ force: true });
+  await page.locator('[data-test="enter-select"]').click();
+  await page.locator('[data-test="album-photo"]').first().click();
+  await page.locator('[data-test="bulk-move"]').click();
   await expect(page.locator('[data-test="move-modal"]')).toBeVisible();
   await page.locator('[data-test="move-option"]').first().click();
   const moveRes = page.waitForResponse(
-    (r) => r.url().includes("/move") && r.request().method() === "POST",
+    (r) =>
+      r.url().includes("/api/photos/bulk-move") &&
+      r.request().method() === "POST",
   );
   await page.locator('[data-test="move-confirm"]').click();
   const res = await moveRes;

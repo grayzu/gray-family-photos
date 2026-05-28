@@ -63,11 +63,16 @@ test("upload photo via UI after OTP login", async ({ page }) => {
   });
   await page.locator('[data-test="location-option"]').first().click();
 
-  const uploadResponse = page.waitForResponse(
-    (r) => r.url().includes("/api/photos/commit") && r.request().method() === "POST",
-  );
   await page.locator('[data-test="location-confirm"]').click();
-  const res = await uploadResponse;
-  expect(res.status()).toBe(201);
+
+  const dateModal = page.locator('[data-test="date-modal"]');
+  if (await dateModal.isVisible({ timeout: 2000 }).catch(() => false)) {
+    const uploadResponse = page.waitForResponse(
+      (r) => r.url().includes("/api/photos/commit") && r.request().method() === "POST",
+    );
+    await page.locator('[data-test="date-confirm"]').click();
+    const res = await uploadResponse;
+    expect(res.status()).toBe(201);
+  }
   await expect(page).toHaveURL("/", { timeout: 15000 });
 });

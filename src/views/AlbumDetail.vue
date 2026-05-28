@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import Lightbox, { type LightboxPhoto } from "@/components/Lightbox.vue";
 import MoveToAlbumModal from "@/components/MoveToAlbumModal.vue";
@@ -40,9 +40,18 @@ const lightboxIdx = ref<number | null>(null);
 const shareLinks = ref<ShareLink[]>([]);
 const sharePanelOpen = ref(false);
 const creatingShare = ref(false);
+const advancedOpen = ref(false);
 
-const moveModalPhoto = ref<PhotoInAlbum | null>(null);
+const selectMode = ref(false);
+const selectedIds = ref<Set<string>>(new Set());
+
+const moveModalPhotos = ref<PhotoInAlbum[] | null>(null);
 const editModalPhoto = ref<PhotoInAlbum | null>(null);
+
+const selectedPhotos = computed(() => {
+  if (!album.value) return [];
+  return album.value.photos.filter((p) => selectedIds.value.has(p.id));
+});
 
 async function load() {
   loading.value = true;
@@ -72,19 +81,155 @@ async function loadShareLinks() {
   if (res.ok) shareLinks.value = (await res.json()) as ShareLink[];
 }
 
-async function deletePhoto(id: string) {
-  if (!confirm("Delete this photo? This cannot be undone.")) return;
-  const res = await fetch(`/api/photos/${id}`, {
-    method: "DELETE",
+function toggleSelect(id: string) {
+  const s = new Set(selectedIds.value);
+  if (s.has(id)) s.delete(id);
+  else s.add(id);
+  selectedIds.value = s;
+}
+
+function enterSelectMode(initialId?: string) {
+  selectMode.value = true;
+  if (initialId) selectedIds.value = new Set([initialId]);
+}
+
+function exitSelectMode() {
+  selectMode.value = false;
+  selectedIds.value = new Set();
+}
+
+function selectAll() {
+  if (!album.value) return;
+  selectedIds.value = new Set(album.value.photos.map((p) => p.id));
+}
+
+function openPhoto(i: number, p: PhotoInAlbum, e: MouseEvent) {
+  if (selectMode.value) {
+    toggleSelect(p.id);
+    return;
+  }
+  if (e.shiftKey || e.metaKey || e.ctrlKey) {
+    enterSelectMode(p.id);
+    return;
+  }
+  lightboxIdx.value = i;
+}
+
+async function bulkDelete() {
+  const ids = Array.from(selectedIds.value);
+  if (ids.length === 0) return;
+  if (
+    !confirm(
+      ids.length === 1
+        ? "Delete this photo? This cannot be undone."
+        : `Delete ${ids.length} photos? This cannot be undone.`,
+    )
+  )
+    return;
+  const res = await fetch("/api/photos/bulk-delete", {
+    method: "POST",
     credentials: "include",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ids }),
   });
   if (res.ok) {
-    if (album.value && album.value.photos.length === 1) {
+    exitSelectMode();
+    if (album.value && album.value.photos.length === ids.length) {
       router.replace("/");
       return;
     }
     await load();
   }
+}
+
+function startBulkMove() {
+  if (selectedIds.value.size === 0 || !album.value) return;
+  moveModalPhotos.value = selectedPhotos.value;
+}
+
+async function onBulkMoveConfirm(targetAlbumId: string) {
+  const ids = Array.from(selectedIds.value);
+  if (ids.length === 0) return;
+  const res = await fetch("/api/photos/bulk-move", {
+    method: "POST",
+    credentials: "include",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ids, albumId: targetAlbumId }),
+  });
+  moveModalPhotos.value = null;
+  if (res.ok) {
+    exitSelectMode();
+    if (album.value && album.value.photos.length === ids.length) {
+      router.replace("/");
+      return;
+    }
+    await load();
+  }
+}
+
+function startBulkEdit() {
+  if (selectedIds.value.size === 1) {
+    const p = selectedPhotos.value[0]!;
+    editModalPhoto.value = p;
+    return;
+  }
+  alert("Edit currently supports one photo at a time. Pick a single photo to edit.");
+}
+
+async function deleteFromLightbox() {
+  if (lightboxIdx.value === null || !album.value) return;
+  const photo = album.value.photos[lightboxIdx.value]!;
+  if (!confirm("Delete this photo? This cannot be undone.")) return;
+  const res = await fetch(`/api/photos/${photo.id}`, {
+    method: "DELETE",
+    credentials: "include",
+  });
+  if (res.ok) {
+    lightboxIdx.value = null;
+    if (album.value.photos.length === 1) {
+      router.replace("/");
+      return;
+    }
+    await load();
+  }
+}
+
+function moveFromLightbox() {
+  if (lightboxIdx.value === null || !album.value) return;
+  const photo = album.value.photos[lightboxIdx.value]!;
+  moveModalPhotos.value = [photo];
+  lightboxIdx.value = null;
+}
+
+async function onSingleMoveConfirm(targetAlbumId: string) {
+  if (!moveModalPhotos.value || moveModalPhotos.value.length === 0) return;
+  const ids = moveModalPhotos.value.map((p) => p.id);
+  const res = await fetch("/api/photos/bulk-move", {
+    method: "POST",
+    credentials: "include",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ids, albumId: targetAlbumId }),
+  });
+  moveModalPhotos.value = null;
+  if (res.ok) {
+    exitSelectMode();
+    if (album.value && album.value.photos.length === ids.length) {
+      router.replace("/");
+      return;
+    }
+    await load();
+  }
+}
+
+function editFromLightbox() {
+  if (lightboxIdx.value === null || !album.value) return;
+  editModalPhoto.value = album.value.photos[lightboxIdx.value]!;
+  lightboxIdx.value = null;
+}
+
+async function onEditSaved() {
+  editModalPhoto.value = null;
+  await load();
 }
 
 async function deleteAlbum() {
@@ -124,7 +269,8 @@ async function createShareLink() {
 }
 
 async function revokeShare(token: string) {
-  if (!confirm("Revoke this share link? Anyone using it will lose access.")) return;
+  if (!confirm("Revoke this share link? Anyone using it will lose access."))
+    return;
   await fetch(`/api/share/${token}`, {
     method: "DELETE",
     credentials: "include",
@@ -140,30 +286,18 @@ async function copyShareUrl(token: string) {
   await navigator.clipboard.writeText(shareUrl(token));
 }
 
-async function onMoveConfirm(targetAlbumId: string) {
-  if (!moveModalPhoto.value || !album.value) return;
-  const res = await fetch(`/api/photos/${moveModalPhoto.value.id}/move`, {
-    method: "POST",
-    credentials: "include",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ albumId: targetAlbumId }),
-  });
-  moveModalPhoto.value = null;
-  if (res.ok) {
-    if (album.value.photos.length === 1) {
-      router.replace("/");
-      return;
-    }
-    await load();
+function onKeyDown(e: KeyboardEvent) {
+  if (selectMode.value && e.key === "Escape") {
+    e.preventDefault();
+    exitSelectMode();
   }
 }
 
-async function onEditSaved() {
-  editModalPhoto.value = null;
-  await load();
-}
-
-onMounted(load);
+onMounted(() => {
+  load();
+  window.addEventListener("keydown", onKeyDown);
+});
+onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
 </script>
 
 <template>
@@ -175,9 +309,19 @@ onMounted(load);
     <p v-if="loading" class="mt-6 text-text-muted">Loading...</p>
     <p v-else-if="error" class="mt-6 text-coral">{{ error }}</p>
     <div v-else-if="album" class="mt-4">
-      <div class="flex items-baseline justify-between mb-1">
-        <h1 class="text-2xl font-semibold text-text-primary" data-test="album-name">{{ album.name }}</h1>
-        <div class="flex items-center gap-4 text-sm">
+      <div class="flex items-baseline justify-between mb-1 gap-3">
+        <h1 class="text-2xl font-semibold text-text-primary truncate" data-test="album-name">
+          {{ album.name }}
+        </h1>
+        <div class="relative flex items-center gap-3 text-sm shrink-0">
+          <button
+            v-if="!selectMode"
+            @click="enterSelectMode()"
+            data-test="enter-select"
+            class="text-text-muted hover:text-text-primary"
+          >
+            Select
+          </button>
           <button
             @click="toggleSharePanel"
             data-test="share-toggle"
@@ -186,17 +330,80 @@ onMounted(load);
             Share
           </button>
           <button
-            @click="deleteAlbum"
-            data-test="delete-album"
-            class="text-coral hover:underline"
+            @click="advancedOpen = !advancedOpen"
+            data-test="advanced-menu"
+            class="text-text-muted hover:text-text-primary w-7 h-7 inline-flex items-center justify-center rounded hover:bg-surface-2"
+            aria-label="More options"
           >
-            Delete album
+            ⋯
           </button>
+          <div
+            v-if="advancedOpen"
+            class="absolute right-0 top-8 z-20 bg-surface border border-border-subtle rounded shadow-lg py-1 min-w-[160px]"
+          >
+            <button
+              @click="advancedOpen = false; deleteAlbum()"
+              data-test="delete-album"
+              class="block w-full text-left px-3 py-2 text-sm text-coral hover:bg-surface-2"
+            >
+              Delete album
+            </button>
+          </div>
         </div>
       </div>
       <p class="text-sm text-text-muted mb-6">
-        {{ album.locationDisplay }} · {{ album.photos.length }} photo{{ album.photos.length === 1 ? "" : "s" }}
+        {{ album.locationDisplay }} · {{ album.photos.length }} photo{{
+          album.photos.length === 1 ? "" : "s"
+        }}
       </p>
+
+      <div
+        v-if="selectMode"
+        data-test="select-bar"
+        class="sticky top-0 z-10 bg-base/95 backdrop-blur border-y border-border-subtle py-3 mb-4 flex items-center gap-4 flex-wrap"
+      >
+        <button
+          @click="exitSelectMode"
+          class="text-text-muted hover:text-text-primary text-sm"
+          aria-label="Cancel selection"
+        >
+          ✕
+        </button>
+        <span class="text-sm text-text-primary">
+          {{ selectedIds.size }} selected
+        </span>
+        <button
+          @click="selectAll"
+          class="text-sm text-accent hover:underline"
+        >
+          Select all
+        </button>
+        <div class="flex-1"></div>
+        <button
+          @click="startBulkEdit"
+          :disabled="selectedIds.size !== 1"
+          data-test="bulk-edit"
+          class="text-sm px-3 py-1.5 border border-border-subtle text-text-primary hover:border-accent rounded disabled:opacity-40"
+        >
+          Edit
+        </button>
+        <button
+          @click="startBulkMove"
+          :disabled="selectedIds.size === 0"
+          data-test="bulk-move"
+          class="text-sm px-3 py-1.5 border border-border-subtle text-text-primary hover:border-accent rounded disabled:opacity-40"
+        >
+          Move
+        </button>
+        <button
+          @click="bulkDelete"
+          :disabled="selectedIds.size === 0"
+          data-test="bulk-delete"
+          class="text-sm px-3 py-1.5 border border-coral text-coral hover:bg-coral/10 rounded disabled:opacity-40"
+        >
+          Delete
+        </button>
+      </div>
 
       <div
         v-if="sharePanelOpen"
@@ -258,51 +465,39 @@ onMounted(load);
         data-test="album-photo-grid"
         class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3"
       >
-        <div
+        <button
           v-for="(p, i) in album.photos"
           :key="p.id"
-          class="relative group"
+          type="button"
+          @click="(e) => openPhoto(i, p, e)"
+          :class="[
+            'relative block w-full aspect-square overflow-hidden rounded bg-surface-2 border transition-all',
+            selectedIds.has(p.id)
+              ? 'border-accent ring-2 ring-accent ring-offset-2 ring-offset-base'
+              : 'border-border-subtle hover:border-accent',
+          ]"
           data-test="album-photo"
+          :aria-label="selectMode ? `Toggle selection for photo ${i + 1}` : `Open photo ${i + 1}`"
         >
-          <button
-            type="button"
-            @click="lightboxIdx = i"
-            class="block w-full aspect-square overflow-hidden rounded bg-surface-2 border border-border-subtle group-hover:border-accent transition-colors"
-            :aria-label="`Open photo ${i + 1}`"
+          <img
+            :src="p.thumbnailUrl"
+            :alt="p.locationDisplay ?? 'Photo'"
+            loading="lazy"
+            class="w-full h-full object-cover"
+          />
+          <span
+            v-if="selectMode"
+            :class="[
+              'absolute top-2 right-2 w-6 h-6 rounded-full border-2 flex items-center justify-center text-xs',
+              selectedIds.has(p.id)
+                ? 'bg-accent border-accent text-base'
+                : 'bg-base/60 border-text-muted/70 text-transparent',
+            ]"
+            data-test="select-mark"
           >
-            <img
-              :src="p.thumbnailUrl"
-              :alt="p.locationDisplay ?? 'Photo'"
-              loading="lazy"
-              class="w-full h-full object-cover"
-            />
-          </button>
-          <div
-            class="absolute top-2 right-2 flex flex-col gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"
-          >
-            <button
-              @click="editModalPhoto = p"
-              data-test="photo-edit"
-              class="bg-surface/90 text-text-primary text-xs px-2 py-1 rounded shadow border border-border-subtle hover:border-accent"
-            >
-              Edit
-            </button>
-            <button
-              @click="moveModalPhoto = p"
-              data-test="photo-move"
-              class="bg-surface/90 text-text-primary text-xs px-2 py-1 rounded shadow border border-border-subtle hover:border-accent"
-            >
-              Move
-            </button>
-            <button
-              @click="deletePhoto(p.id)"
-              data-test="photo-delete"
-              class="bg-surface/90 text-coral text-xs px-2 py-1 rounded shadow border border-border-subtle"
-            >
-              Delete
-            </button>
-          </div>
-        </div>
+            ✓
+          </span>
+        </button>
       </div>
 
       <Lightbox
@@ -310,14 +505,22 @@ onMounted(load);
         :index="lightboxIdx"
         @close="lightboxIdx = null"
         @navigate="(i) => (lightboxIdx = i)"
+        @edit="editFromLightbox"
+        @move="moveFromLightbox"
+        @delete="deleteFromLightbox"
       />
 
       <MoveToAlbumModal
-        v-if="moveModalPhoto && album"
-        :open="moveModalPhoto !== null"
+        v-if="moveModalPhotos && album"
+        :open="moveModalPhotos !== null"
         :current-album-id="album.id"
-        @select="onMoveConfirm"
-        @cancel="moveModalPhoto = null"
+        @select="
+          (target) =>
+            moveModalPhotos && moveModalPhotos.length > 1
+              ? onBulkMoveConfirm(target)
+              : onSingleMoveConfirm(target)
+        "
+        @cancel="moveModalPhotos = null"
       />
 
       <EditPhotoModal

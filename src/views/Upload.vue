@@ -4,11 +4,13 @@ import { useRouter } from "vue-router";
 import LocationPromptModal, {
   type LocationCandidate,
 } from "@/components/LocationPromptModal.vue";
+import DatePromptModal from "@/components/DatePromptModal.vue";
 import { hasGps, parsePhotoExif, type ParsedExif } from "@/lib/exif";
 
 type Status =
   | "pending"
   | "needs-location"
+  | "needs-date"
   | "uploading"
   | "done"
   | "error";
@@ -20,12 +22,14 @@ type Job = {
   height: number;
   status: Status;
   location: LocationCandidate | null;
+  takenAtOverride: number | null;
   error: string | null;
 };
 
 const router = useRouter();
 const jobs = ref<Job[]>([]);
-const promptingIdx = ref<number | null>(null);
+const promptingLocationIdx = ref<number | null>(null);
+const promptingDateIdx = ref<number | null>(null);
 const overallProgress = computed(() => {
   if (jobs.value.length === 0) return null;
   const done = jobs.value.filter(
@@ -73,6 +77,7 @@ async function onSelect(e: Event) {
     height: 0,
     status: "pending" as Status,
     location: null,
+    takenAtOverride: null,
     error: null,
   }));
 
@@ -89,11 +94,20 @@ async function startBatch() {
     const job = jobs.value[i]!;
     if (job.status === "done" || job.status === "error") continue;
     if (!job.exif) job.exif = await parsePhotoExif(job.file);
+
     if (!hasGps(job.exif) && !job.location) {
       job.status = "needs-location";
-      promptingIdx.value = i;
+      promptingLocationIdx.value = i;
       return;
     }
+
+    const hasExifDate = job.exif?.takenAt instanceof Date;
+    if (!hasExifDate && job.takenAtOverride === null) {
+      job.status = "needs-date";
+      promptingDateIdx.value = i;
+      return;
+    }
+
     await uploadOne(i);
   }
   if (allDone.value && jobs.value.every((j) => j.status === "done")) {
@@ -144,9 +158,10 @@ async function uploadOne(i: number) {
     }
 
     const takenAt =
-      job.exif?.takenAt instanceof Date
+      job.takenAtOverride ??
+      (job.exif?.takenAt instanceof Date
         ? Math.floor(job.exif.takenAt.getTime() / 1000)
-        : null;
+        : null);
 
     const commitRes = await fetch("/api/photos/commit", {
       method: "POST",
@@ -178,19 +193,36 @@ async function uploadOne(i: number) {
 }
 
 async function onLocationConfirm(value: LocationCandidate) {
-  if (promptingIdx.value === null) return;
-  const i = promptingIdx.value;
+  if (promptingLocationIdx.value === null) return;
+  const i = promptingLocationIdx.value;
   jobs.value[i]!.location = value;
   jobs.value[i]!.status = "pending";
-  promptingIdx.value = null;
+  promptingLocationIdx.value = null;
   await startBatch();
 }
 
 function onLocationCancel() {
-  if (promptingIdx.value !== null) {
-    jobs.value[promptingIdx.value]!.status = "error";
-    jobs.value[promptingIdx.value]!.error = "Cancelled (no location)";
-    promptingIdx.value = null;
+  if (promptingLocationIdx.value !== null) {
+    jobs.value[promptingLocationIdx.value]!.status = "error";
+    jobs.value[promptingLocationIdx.value]!.error = "Cancelled (no location)";
+    promptingLocationIdx.value = null;
+  }
+}
+
+async function onDateConfirm(takenAt: number) {
+  if (promptingDateIdx.value === null) return;
+  const i = promptingDateIdx.value;
+  jobs.value[i]!.takenAtOverride = takenAt;
+  jobs.value[i]!.status = "pending";
+  promptingDateIdx.value = null;
+  await startBatch();
+}
+
+function onDateCancel() {
+  if (promptingDateIdx.value !== null) {
+    jobs.value[promptingDateIdx.value]!.status = "error";
+    jobs.value[promptingDateIdx.value]!.error = "Cancelled (no date)";
+    promptingDateIdx.value = null;
   }
 }
 
@@ -200,6 +232,8 @@ function statusLabel(s: Status) {
       return "Waiting";
     case "needs-location":
       return "Awaiting location";
+    case "needs-date":
+      return "Awaiting date";
     case "uploading":
       return "Uploading...";
     case "done":
@@ -234,7 +268,9 @@ function statusLabel(s: Status) {
           :class="{
             'text-text-muted': job.status === 'pending',
             'text-gold':
-              job.status === 'needs-location' || job.status === 'uploading',
+              job.status === 'needs-location' ||
+              job.status === 'needs-date' ||
+              job.status === 'uploading',
             'text-lime': job.status === 'done',
             'text-coral': job.status === 'error',
           }"
@@ -255,7 +291,12 @@ function statusLabel(s: Status) {
     <button
       data-test="start"
       type="button"
-      :disabled="jobs.length === 0 || allDone || promptingIdx !== null"
+      :disabled="
+        jobs.length === 0 ||
+        allDone ||
+        promptingLocationIdx !== null ||
+        promptingDateIdx !== null
+      "
       @click="startBatch"
       class="w-full bg-accent hover:bg-accent-hover text-base font-medium rounded py-2 disabled:opacity-50 transition-colors"
     >
@@ -263,18 +304,29 @@ function statusLabel(s: Status) {
     </button>
 
     <p class="mt-3 text-xs text-text-muted">
-      JPEG and plain HEIC photos work fine. iPhone Live Photos / Portrait Mode
-      (heix HEIF) will upload but display a placeholder. To avoid this on iPhone,
-      set <span class="text-text-primary">Settings → Camera → Formats → Most Compatible</span>.
+      Date and location are required for every photo. If your camera didn't
+      capture them in EXIF, you'll be prompted before upload. iPhone Live Photos
+      and Sony A7IV HEIF are converted to JPEG server-side.
     </p>
 
     <LocationPromptModal
-      :open="promptingIdx !== null"
+      :open="promptingLocationIdx !== null"
       :file-name="
-        promptingIdx !== null ? jobs[promptingIdx]?.file.name : undefined
+        promptingLocationIdx !== null
+          ? jobs[promptingLocationIdx]?.file.name
+          : undefined
       "
       @confirm="onLocationConfirm"
       @cancel="onLocationCancel"
+    />
+
+    <DatePromptModal
+      :open="promptingDateIdx !== null"
+      :file-name="
+        promptingDateIdx !== null ? jobs[promptingDateIdx]?.file.name : undefined
+      "
+      @confirm="onDateConfirm"
+      @cancel="onDateCancel"
     />
   </div>
 </template>

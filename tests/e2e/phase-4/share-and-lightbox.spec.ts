@@ -28,12 +28,7 @@ test("lightbox opens, navigates with arrows, closes with Escape", async ({ page 
   await page.locator('[data-test="album-card"]').first().click();
   await expect(page.locator('[data-test="album-photo"]').first()).toBeVisible();
 
-  await page
-    .locator('[data-test="album-photo"]')
-    .first()
-    .locator("button")
-    .first()
-    .click();
+  await page.locator('[data-test="album-photo"]').first().click();
   const lightbox = page.locator('[data-test="lightbox"]');
   await expect(lightbox).toBeVisible();
 

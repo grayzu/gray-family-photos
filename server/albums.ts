@@ -21,10 +21,16 @@ const MONTH_NAMES = [
 const UNDATED_YEAR = 0;
 const UNDATED_MONTH = 0;
 
-export function locationKey(displayOrName: string, countryCode: string | null): string {
-  const base = displayOrName
-    .split(",")[0]!
-    .trim()
+export function locationKey(
+  city: string | null,
+  countryCode: string | null,
+  fallbackDisplay?: string | null,
+): string {
+  const raw =
+    (city && city.trim()) ||
+    (fallbackDisplay ? fallbackDisplay.split(",")[0]!.trim() : "") ||
+    "unknown";
+  const base = raw
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
@@ -32,14 +38,23 @@ export function locationKey(displayOrName: string, countryCode: string | null): 
   return `${base || "unknown"}-${cc}`;
 }
 
-function albumNameFor(year: number, month: number, locationDisplay: string): string {
-  const city = locationDisplay.split(",")[0]!.trim() || "Unknown";
-  if (year === UNDATED_YEAR && month === UNDATED_MONTH) return `${city} - Undated`;
-  return `${city} - ${MONTH_NAMES[month - 1]} ${year}`;
+function albumNameFor(
+  year: number,
+  month: number,
+  city: string | null,
+  fallbackDisplay: string,
+): string {
+  const name =
+    (city && city.trim()) ||
+    fallbackDisplay.split(",")[0]!.trim() ||
+    "Unknown";
+  if (year === UNDATED_YEAR && month === UNDATED_MONTH) return `${name} - Undated`;
+  return `${name} - ${MONTH_NAMES[month - 1]} ${year}`;
 }
 
 export async function findOrCreateAlbum(input: {
   takenAt: number | null;
+  locationName: string | null;
   locationDisplay: string;
   locationCountry: string | null;
   coverPhotoId?: string | null;
@@ -51,7 +66,7 @@ export async function findOrCreateAlbum(input: {
     year = d.getUTCFullYear();
     month = d.getUTCMonth() + 1;
   }
-  const key = locationKey(input.locationDisplay, input.locationCountry);
+  const key = locationKey(input.locationName, input.locationCountry, input.locationDisplay);
 
   const existing = await db
     .select()
@@ -69,7 +84,7 @@ export async function findOrCreateAlbum(input: {
   const id = randomBytes(16).toString("hex");
   await db.insert(albums).values({
     id,
-    name: albumNameFor(year, month, input.locationDisplay),
+    name: albumNameFor(year, month, input.locationName, input.locationDisplay),
     year,
     month,
     locationKey: key,
@@ -84,6 +99,7 @@ export async function assignPhotoToAlbum(photo: Photo): Promise<string | null> {
   if (!photo.locationDisplay) return null;
   const albumId = await findOrCreateAlbum({
     takenAt: photo.takenAt,
+    locationName: photo.locationName,
     locationDisplay: photo.locationDisplay,
     locationCountry: photo.locationCountry,
     coverPhotoId: photo.id,

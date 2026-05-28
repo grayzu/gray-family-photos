@@ -16,7 +16,12 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: "close"): void;
   (e: "navigate", index: number): void;
+  (e: "edit"): void;
+  (e: "move"): void;
+  (e: "delete"): void;
 }>();
+
+const menuOpen = ref(false);
 
 const current = computed(() =>
   props.index === null ? null : (props.photos[props.index] ?? null),
@@ -74,6 +79,7 @@ watch(
   (idx) => {
     if (idx !== null) document.body.style.overflow = "hidden";
     else document.body.style.overflow = "";
+    menuOpen.value = false;
   },
 );
 
@@ -118,6 +124,44 @@ function formatDate(taken: number | null) {
     >
       ✕
     </button>
+
+    <div class="absolute top-4 right-16 flex items-center">
+      <button
+        @click.stop="menuOpen = !menuOpen"
+        data-test="lightbox-menu"
+        aria-label="Photo options"
+        class="text-white bg-black/40 hover:bg-black/70 w-10 h-10 rounded-full flex items-center justify-center text-xl"
+      >
+        ⋯
+      </button>
+      <div
+        v-if="menuOpen"
+        class="absolute right-0 top-12 bg-surface border border-border-subtle rounded shadow-lg py-1 min-w-[140px]"
+        @click.stop
+      >
+        <button
+          @click="menuOpen = false; emit('edit')"
+          data-test="lightbox-edit"
+          class="block w-full text-left px-3 py-2 text-sm text-text-primary hover:bg-surface-2"
+        >
+          Edit
+        </button>
+        <button
+          @click="menuOpen = false; emit('move')"
+          data-test="lightbox-move"
+          class="block w-full text-left px-3 py-2 text-sm text-text-primary hover:bg-surface-2"
+        >
+          Move
+        </button>
+        <button
+          @click="menuOpen = false; emit('delete')"
+          data-test="lightbox-delete"
+          class="block w-full text-left px-3 py-2 text-sm text-coral hover:bg-surface-2"
+        >
+          Delete
+        </button>
+      </div>
+    </div>
 
     <div class="absolute top-4 left-4 text-white text-sm bg-black/40 px-3 py-1 rounded">
       {{ index + 1 }} / {{ photos.length }}
