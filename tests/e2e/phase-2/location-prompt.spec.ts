@@ -33,25 +33,21 @@ test("upload without GPS shows location prompt, geocode finds Sydney, confirms a
   await page.locator('[data-test="files"]').setInputFiles("/tmp/test-photo.jpg");
   await page.locator('[data-test="start"]').click();
 
-  await expect(page.locator('[data-test="location-modal"]')).toBeVisible();
+  await expect(page.locator('[data-test="metadata-modal"]')).toBeVisible();
 
-  await page.locator('[data-test="location-input"]').fill("sydney");
-  await expect(page.locator('[data-test="location-option"]').first()).toBeVisible({
+  await page.locator('[data-test="metadata-location-input"]').fill("sydney");
+  await expect(page.locator('[data-test="metadata-location-option"]').first()).toBeVisible({
     timeout: 5000,
   });
 
-  await page.locator('[data-test="location-option"]').first().click();
-  await page.locator('[data-test="location-confirm"]').click();
+  await page.locator('[data-test="metadata-location-option"]').first().click();
 
-  const dateModal = page.locator('[data-test="date-modal"]');
-  if (await dateModal.isVisible({ timeout: 2000 }).catch(() => false)) {
-    const uploadPromise = page.waitForResponse(
-      (r) => r.url().includes("/api/photos/commit") && r.request().method() === "POST",
-    );
-    await page.locator('[data-test="date-confirm"]').click();
-    const res = await uploadPromise;
-    expect(res.status()).toBe(201);
-  }
+  const uploadPromise = page.waitForResponse(
+    (r) => r.url().includes("/api/photos/commit") && r.request().method() === "POST",
+  );
+  await page.locator('[data-test="metadata-confirm"]').click();
+  const res = await uploadPromise;
+  expect(res.status()).toBe(201);
 
   await expect(page).toHaveURL("/", { timeout: 15000 });
 });
@@ -63,10 +59,10 @@ test("invalid location query shows no-matches message", async ({ page }) => {
   await page.locator('[data-test="files"]').setInputFiles("/tmp/test-photo.jpg");
   await page.locator('[data-test="start"]').click();
 
-  await expect(page.locator('[data-test="location-modal"]')).toBeVisible();
-  await page.locator('[data-test="location-input"]').fill("xqzpdqzzzz");
-  await expect(page.locator('[data-test="no-matches"]')).toBeVisible({
+  await expect(page.locator('[data-test="metadata-modal"]')).toBeVisible();
+  await page.locator('[data-test="metadata-location-input"]').fill("xqzpdqzzzz");
+  await expect(page.locator('[data-test="metadata-no-matches"]')).toBeVisible({
     timeout: 5000,
   });
-  await expect(page.locator('[data-test="location-confirm"]')).toBeDisabled();
+  await expect(page.locator('[data-test="metadata-confirm"]')).toBeDisabled();
 });

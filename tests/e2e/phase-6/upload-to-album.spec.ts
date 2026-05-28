@@ -27,17 +27,13 @@ async function uploadAt(
 ) {
   await page.locator('[data-test="files"]').setInputFiles("/tmp/test-photo.jpg");
   await page.locator('[data-test="start"]').click();
-  await expect(page.locator('[data-test="location-modal"]')).toBeVisible();
-  await page.locator('[data-test="location-input"]').fill(locationQuery);
-  await expect(page.locator('[data-test="location-option"]').first()).toBeVisible({
+  await expect(page.locator('[data-test="metadata-modal"]')).toBeVisible();
+  await page.locator('[data-test="metadata-location-input"]').fill(locationQuery);
+  await expect(page.locator('[data-test="metadata-location-option"]').first()).toBeVisible({
     timeout: 5000,
   });
-  await page.locator('[data-test="location-option"]').first().click();
-  await page.locator('[data-test="location-confirm"]').click();
-  const dateModal = page.locator('[data-test="date-modal"]');
-  if (await dateModal.isVisible({ timeout: 2000 }).catch(() => false)) {
-    await page.locator('[data-test="date-confirm"]').click();
-  }
+  await page.locator('[data-test="metadata-location-option"]').first().click();
+  await page.locator('[data-test="metadata-confirm"]').click();
 }
 
 test("upload to specific album from album detail puts photo in that album regardless of location", async ({

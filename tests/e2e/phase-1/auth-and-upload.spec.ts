@@ -56,23 +56,18 @@ test("upload photo via UI after OTP login", async ({ page }) => {
   await page.locator('[data-test="files"]').setInputFiles("/tmp/test-photo.jpg");
   await page.locator('[data-test="start"]').click();
 
-  await expect(page.locator('[data-test="location-modal"]')).toBeVisible();
-  await page.locator('[data-test="location-input"]').fill("sydney");
-  await expect(page.locator('[data-test="location-option"]').first()).toBeVisible({
+  await expect(page.locator('[data-test="metadata-modal"]')).toBeVisible();
+  await page.locator('[data-test="metadata-location-input"]').fill("sydney");
+  await expect(page.locator('[data-test="metadata-location-option"]').first()).toBeVisible({
     timeout: 5000,
   });
-  await page.locator('[data-test="location-option"]').first().click();
+  await page.locator('[data-test="metadata-location-option"]').first().click();
 
-  await page.locator('[data-test="location-confirm"]').click();
-
-  const dateModal = page.locator('[data-test="date-modal"]');
-  if (await dateModal.isVisible({ timeout: 2000 }).catch(() => false)) {
-    const uploadResponse = page.waitForResponse(
-      (r) => r.url().includes("/api/photos/commit") && r.request().method() === "POST",
-    );
-    await page.locator('[data-test="date-confirm"]').click();
-    const res = await uploadResponse;
-    expect(res.status()).toBe(201);
-  }
+  const uploadResponse = page.waitForResponse(
+    (r) => r.url().includes("/api/photos/commit") && r.request().method() === "POST",
+  );
+  await page.locator('[data-test="metadata-confirm"]').click();
+  const res = await uploadResponse;
+  expect(res.status()).toBe(201);
   await expect(page).toHaveURL("/", { timeout: 15000 });
 });

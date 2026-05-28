@@ -232,6 +232,21 @@ async function onEditSaved() {
   await load();
 }
 
+async function renameAlbum() {
+  if (!album.value) return;
+  const newName = window.prompt("Rename album to:", album.value.name);
+  if (!newName) return;
+  const trimmed = newName.trim();
+  if (!trimmed || trimmed === album.value.name) return;
+  const res = await fetch(`/api/albums/${album.value.id}`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name: trimmed }),
+  });
+  if (res.ok) await load();
+}
+
 async function deleteAlbum() {
   if (!album.value) return;
   if (
@@ -349,6 +364,13 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
             v-if="advancedOpen"
             class="absolute right-0 top-8 z-20 bg-surface border border-border-subtle rounded shadow-lg py-1 min-w-[160px]"
           >
+            <button
+              @click="advancedOpen = false; renameAlbum()"
+              data-test="rename-album"
+              class="block w-full text-left px-3 py-2 text-sm text-text-primary hover:bg-surface-2"
+            >
+              Rename album
+            </button>
             <button
               @click="advancedOpen = false; deleteAlbum()"
               data-test="delete-album"
