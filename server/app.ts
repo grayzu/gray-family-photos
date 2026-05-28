@@ -263,21 +263,28 @@ export function buildApp() {
           .from(photos)
           .where(eq(photos.userId, user.id));
 
-        const countsByAlbum = new Map<string, { count: number; coverKey: string | null; coverUploadedAt: number }>();
+        const countsByAlbum = new Map<
+          string,
+          { count: number; latestKey: string | null; latestUploadedAt: number; keysById: Map<string, string> }
+        >();
         for (const p of photoRows) {
           if (!p.albumId) continue;
           const existing = countsByAlbum.get(p.albumId);
           if (!existing) {
+            const m = new Map<string, string>();
+            m.set(p.id, p.originalKey);
             countsByAlbum.set(p.albumId, {
               count: 1,
-              coverKey: p.originalKey,
-              coverUploadedAt: p.uploadedAt,
+              latestKey: p.originalKey,
+              latestUploadedAt: p.uploadedAt,
+              keysById: m,
             });
           } else {
             existing.count++;
-            if (p.uploadedAt > existing.coverUploadedAt) {
-              existing.coverKey = p.originalKey;
-              existing.coverUploadedAt = p.uploadedAt;
+            existing.keysById.set(p.id, p.originalKey);
+            if (p.uploadedAt > existing.latestUploadedAt) {
+              existing.latestKey = p.originalKey;
+              existing.latestUploadedAt = p.uploadedAt;
             }
           }
         }
@@ -287,6 +294,28 @@ export function buildApp() {
           .map((a) => {
             const info = countsByAlbum.get(a.id);
             if (!info) return null;
+
+            let coverUrls: string[] = [];
+            if (a.coverMode === "collage" && a.collagePhotoIds) {
+              try {
+                const ids = JSON.parse(a.collagePhotoIds) as string[];
+                const keys = ids
+                  .map((pid) => info.keysById.get(pid))
+                  .filter((k): k is string => Boolean(k));
+                if (keys.length === 4) {
+                  coverUrls = keys.map((k) => thumbnailUrl(k));
+                }
+              } catch {
+                /* corrupt json - fall through to single */
+              }
+            }
+            if (coverUrls.length === 0) {
+              const key = a.coverPhotoId
+                ? info.keysById.get(a.coverPhotoId) ?? info.latestKey
+                : info.latestKey;
+              if (key) coverUrls = [thumbnailUrl(key)];
+            }
+
             return {
               id: a.id,
               name: a.name,
@@ -294,7 +323,8 @@ export function buildApp() {
               month: a.month,
               locationDisplay: a.locationDisplay,
               photoCount: info.count,
-              coverUrl: info.coverKey ? thumbnailUrl(info.coverKey) : null,
+              coverMode: a.coverMode === "collage" && coverUrls.length === 4 ? "collage" : "single",
+              coverUrls,
             };
           })
           .filter((x): x is NonNullable<typeof x> => x !== null)
@@ -320,12 +350,25 @@ export function buildApp() {
           .from(photos)
           .where(and(eq(photos.albumId, id), eq(photos.userId, user.id)))
           .orderBy(sql`${photos.takenAt} ASC, ${photos.uploadedAt} ASC`);
+
+        let collagePhotoIds: string[] | null = null;
+        if (album[0].coverMode === "collage" && album[0].collagePhotoIds) {
+          try {
+            collagePhotoIds = JSON.parse(album[0].collagePhotoIds) as string[];
+          } catch {
+            collagePhotoIds = null;
+          }
+        }
+
         return c.json({
           id: album[0].id,
           name: album[0].name,
           year: album[0].year,
           month: album[0].month,
           locationDisplay: album[0].locationDisplay,
+          coverPhotoId: album[0].coverPhotoId,
+          coverMode: album[0].coverMode === "collage" ? "collage" : "single",
+          collagePhotoIds,
           photos: albumPhotos.map((p) => ({
             id: p.id,
             originalUrl: viewUrl(p.r2OriginalKey),
@@ -339,23 +382,68 @@ export function buildApp() {
         });
       })
       .patch("/:id", async (c) => {
+        if (!c.get("user").isAdmin) return c.json({ error: "admin only" }, 403);
         const id = c.req.param("id");
-        const body = await c.req.json().catch(() => null);
-        if (
-          !body ||
-          typeof body !== "object" ||
-          typeof (body as Record<string, unknown>).name !== "string"
-        ) {
-          return c.json({ error: "name required" }, 400);
+        const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+        if (!body || typeof body !== "object") {
+          return c.json({ error: "body required" }, 400);
         }
-        await db
-          .update(albums)
-          .set({ name: (body as Record<string, string>).name.trim() })
-          .where(eq(albums.id, id));
+
+        const updates: Partial<typeof albums.$inferInsert> = {};
+
+        if (typeof body.name === "string") {
+          const trimmed = body.name.trim();
+          if (trimmed) updates.name = trimmed;
+        }
+
+        if ("coverMode" in body) {
+          if (body.coverMode === "single") {
+            const coverPhotoId =
+              typeof body.coverPhotoId === "string" ? body.coverPhotoId : null;
+            if (!coverPhotoId) return c.json({ error: "coverPhotoId required for single mode" }, 400);
+            const owns = await db
+              .select({ id: photos.id })
+              .from(photos)
+              .where(and(eq(photos.id, coverPhotoId), eq(photos.albumId, id)))
+              .limit(1);
+            if (owns.length === 0) {
+              return c.json({ error: "coverPhotoId not in this album" }, 400);
+            }
+            updates.coverMode = "single";
+            updates.coverPhotoId = coverPhotoId;
+            updates.collagePhotoIds = null;
+          } else if (body.coverMode === "collage") {
+            const ids = Array.isArray(body.collagePhotoIds)
+              ? (body.collagePhotoIds as unknown[]).filter((x): x is string => typeof x === "string")
+              : [];
+            if (ids.length !== 4) {
+              return c.json({ error: "collage requires exactly 4 photo ids" }, 400);
+            }
+            const owns = await db
+              .select({ id: photos.id })
+              .from(photos)
+              .where(and(inArray(photos.id, ids), eq(photos.albumId, id)));
+            if (owns.length !== 4) {
+              return c.json({ error: "one or more collage photo ids not in this album" }, 400);
+            }
+            updates.coverMode = "collage";
+            updates.collagePhotoIds = JSON.stringify(ids);
+            updates.coverPhotoId = ids[0]!;
+          } else {
+            return c.json({ error: "coverMode must be single or collage" }, 400);
+          }
+        }
+
+        if (Object.keys(updates).length === 0) {
+          return c.json({ error: "no fields to update" }, 400);
+        }
+
+        await db.update(albums).set(updates).where(eq(albums.id, id));
         return c.json({ ok: true });
       })
       .delete("/:id", async (c) => {
         const user = c.get("user");
+        if (!user.isAdmin) return c.json({ error: "admin only" }, 403);
         const id = c.req.param("id");
         const userPhotos = await db
           .select()
@@ -639,6 +727,7 @@ export function buildApp() {
       })
       .patch("/:id", async (c) => {
         const user = c.get("user");
+        if (!user.isAdmin) return c.json({ error: "admin only" }, 403);
         const id = c.req.param("id");
         const body = await c.req.json().catch(() => null);
         if (!body || typeof body !== "object")
@@ -704,6 +793,7 @@ export function buildApp() {
       })
       .post("/:id/move", async (c) => {
         const user = c.get("user");
+        if (!user.isAdmin) return c.json({ error: "admin only" }, 403);
         const id = c.req.param("id");
         const body = await c.req.json().catch(() => null);
         const targetAlbumId =
@@ -752,6 +842,7 @@ export function buildApp() {
       })
       .delete("/:id", async (c) => {
         const user = c.get("user");
+        if (!user.isAdmin) return c.json({ error: "admin only" }, 403);
         const id = c.req.param("id");
         const rows = await db
           .select()
@@ -770,6 +861,7 @@ export function buildApp() {
       })
       .post("/bulk-delete", async (c) => {
         const user = c.get("user");
+        if (!user.isAdmin) return c.json({ error: "admin only" }, 403);
         const body = await c.req.json().catch(() => null);
         const ids = Array.isArray((body as Record<string, unknown> | null)?.ids)
           ? ((body as Record<string, unknown>).ids as unknown[]).filter(
@@ -799,6 +891,7 @@ export function buildApp() {
       })
       .post("/bulk-move", async (c) => {
         const user = c.get("user");
+        if (!user.isAdmin) return c.json({ error: "admin only" }, 403);
         const body = (await c.req.json().catch(() => null)) as Record<
           string,
           unknown

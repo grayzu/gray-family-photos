@@ -65,6 +65,8 @@ export const albums = sqliteTable(
     locationKey: text("location_key").notNull(),
     locationDisplay: text("location_display").notNull(),
     coverPhotoId: text("cover_photo_id"),
+    coverMode: text("cover_mode").notNull().default("single"),
+    collagePhotoIds: text("collage_photo_ids"),
     createdAt: integer("created_at").notNull(),
   },
   (t) => [

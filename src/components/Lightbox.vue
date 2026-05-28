@@ -11,6 +11,7 @@ export type LightboxPhoto = {
 const props = defineProps<{
   photos: LightboxPhoto[];
   index: number | null;
+  showActions?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -125,7 +126,7 @@ function formatDate(taken: number | null) {
       ✕
     </button>
 
-    <div class="absolute top-4 right-16 flex items-center">
+    <div v-if="showActions" class="absolute top-4 right-16 flex items-center">
       <button
         @click.stop="menuOpen = !menuOpen"
         data-test="lightbox-menu"

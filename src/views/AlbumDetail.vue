@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { useAuthStore } from "@/stores/auth";
 import Lightbox, { type LightboxPhoto } from "@/components/Lightbox.vue";
 import MoveToAlbumModal from "@/components/MoveToAlbumModal.vue";
 import EditPhotoModal from "@/components/EditPhotoModal.vue";
+import AlbumThumbnailModal from "@/components/AlbumThumbnailModal.vue";
 
 type PhotoInAlbum = LightboxPhoto & {
   thumbnailUrl: string;
@@ -28,10 +30,16 @@ type AlbumDetail = {
   month: number;
   locationDisplay: string;
   photos: PhotoInAlbum[];
+  coverPhotoId?: string | null;
+  coverMode?: "single" | "collage";
+  collagePhotoIds?: string[] | null;
 };
 
 const route = useRoute();
 const router = useRouter();
+const auth = useAuthStore();
+const isAdmin = computed(() => auth.isAdmin);
+const thumbnailModalOpen = ref(false);
 const album = ref<AlbumDetail | null>(null);
 const loading = ref(true);
 const error = ref<string | null>(null);
@@ -232,6 +240,11 @@ async function onEditSaved() {
   await load();
 }
 
+async function onThumbnailSaved() {
+  thumbnailModalOpen.value = false;
+  await load();
+}
+
 async function renameAlbum() {
   if (!album.value) return;
   const newName = window.prompt("Rename album to:", album.value.name);
@@ -338,7 +351,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
             + Upload
           </RouterLink>
           <button
-            v-if="!selectMode"
+            v-if="!selectMode && isAdmin"
             @click="enterSelectMode()"
             data-test="enter-select"
             class="text-text-muted hover:text-text-primary"
@@ -353,6 +366,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
             Share
           </button>
           <button
+            v-if="isAdmin"
             @click="advancedOpen = !advancedOpen"
             data-test="advanced-menu"
             class="text-text-muted hover:text-text-primary w-7 h-7 inline-flex items-center justify-center rounded hover:bg-surface-2"
@@ -361,8 +375,8 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
             ⋯
           </button>
           <div
-            v-if="advancedOpen"
-            class="absolute right-0 top-8 z-20 bg-surface border border-border-subtle rounded shadow-lg py-1 min-w-[160px]"
+            v-if="advancedOpen && isAdmin"
+            class="absolute right-0 top-8 z-20 bg-surface border border-border-subtle rounded shadow-lg py-1 min-w-[180px]"
           >
             <button
               @click="advancedOpen = false; renameAlbum()"
@@ -370,6 +384,13 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
               class="block w-full text-left px-3 py-2 text-sm text-text-primary hover:bg-surface-2"
             >
               Rename album
+            </button>
+            <button
+              @click="advancedOpen = false; thumbnailModalOpen = true"
+              data-test="set-thumbnail"
+              class="block w-full text-left px-3 py-2 text-sm text-text-primary hover:bg-surface-2"
+            >
+              Set album thumbnail
             </button>
             <button
               @click="advancedOpen = false; deleteAlbum()"
@@ -533,6 +554,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
       <Lightbox
         :photos="album.photos"
         :index="lightboxIdx"
+        :show-actions="isAdmin"
         @close="lightboxIdx = null"
         @navigate="(i) => (lightboxIdx = i)"
         @edit="editFromLightbox"
@@ -561,6 +583,18 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
         :location-display="editModalPhoto.locationDisplay"
         @saved="onEditSaved"
         @cancel="editModalPhoto = null"
+      />
+
+      <AlbumThumbnailModal
+        v-if="album && thumbnailModalOpen"
+        :open="thumbnailModalOpen"
+        :album-id="album.id"
+        :photos="album.photos.map((p) => ({ id: p.id, thumbnailUrl: p.thumbnailUrl }))"
+        :current-cover-photo-id="album.coverPhotoId ?? null"
+        :current-collage-photo-ids="album.collagePhotoIds ?? null"
+        :current-mode="album.coverMode === 'collage' ? 'collage' : 'single'"
+        @saved="onThumbnailSaved"
+        @cancel="thumbnailModalOpen = false"
       />
     </div>
   </div>

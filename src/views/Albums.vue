@@ -8,7 +8,7 @@ type AlbumSummary = {
   month: number;
   locationDisplay: string;
   photoCount: number;
-  coverUrl: string | null;
+  coverUrls: string[];
 };
 
 const albums = ref<AlbumSummary[]>([]);
@@ -73,9 +73,23 @@ onMounted(load);
             data-test="album-card"
           >
             <div class="aspect-square bg-surface-2 rounded-lg overflow-hidden border border-border-subtle group-hover:border-accent transition-all group-hover:shadow-lg group-hover:shadow-accent/10 group-hover:scale-[1.02]">
+              <div
+                v-if="album.coverUrls.length === 4"
+                class="w-full h-full grid grid-cols-2 grid-rows-2 gap-px bg-border-subtle"
+                data-test="album-cover-collage"
+              >
+                <img
+                  v-for="(url, i) in album.coverUrls"
+                  :key="i"
+                  :src="url"
+                  :alt="`${album.name} ${i + 1}`"
+                  loading="lazy"
+                  class="w-full h-full object-cover"
+                />
+              </div>
               <img
-                v-if="album.coverUrl"
-                :src="album.coverUrl"
+                v-else-if="album.coverUrls.length === 1"
+                :src="album.coverUrls[0]"
                 :alt="album.name"
                 loading="lazy"
                 class="w-full h-full object-cover"
