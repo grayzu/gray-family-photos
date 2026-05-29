@@ -14,6 +14,7 @@ type PhotoInAlbum = LightboxPhoto & {
   height: number;
   uploadedAt: number;
   locationDisplay: string | null;
+  uploadedBy?: string | null;
 };
 
 type ShareLink = {
@@ -578,7 +579,6 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
         <h3 class="text-xl font-display font-medium text-text-primary mb-2">This album is empty</h3>
         <p class="text-text-muted mb-6">Upload photos to add them to this album.</p>
         <RouterLink
-          v-if="isAdmin"
           :to="`/upload?albumId=${album.id}`"
           class="bg-surface-2 hover:bg-border-subtle text-text-primary font-medium px-6 py-2.5 rounded-lg text-sm transition-colors border border-border-subtle"
         >

@@ -6,6 +6,7 @@ export type LightboxPhoto = {
   originalUrl: string;
   thumbnailUrl: string;
   takenAt: number | null;
+  uploadedBy?: string | null;
 };
 
 const props = defineProps<{
@@ -194,9 +195,12 @@ function formatDate(taken: number | null) {
       />
 
       <div
-        class="absolute bottom-4 left-1/2 -translate-x-1/2 text-white text-sm bg-black/50 px-3 py-2 rounded flex items-center gap-3"
+        class="absolute bottom-4 left-1/2 -translate-x-1/2 text-white text-sm bg-black/50 px-3 py-2 rounded flex flex-col items-center gap-1 sm:flex-row sm:gap-3"
       >
         <span>{{ formatDate(current.takenAt) }}</span>
+        <span v-if="current.uploadedBy" class="opacity-75 sm:border-l sm:border-white/30 sm:pl-3">
+          by {{ current.uploadedBy }}
+        </span>
         <a
           :href="current.originalUrl"
           :download="`photo-${current.id}.jpg`"

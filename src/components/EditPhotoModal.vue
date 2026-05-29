@@ -89,6 +89,7 @@ async function save() {
   <Transition name="modal">
     <div
       v-if="open"
+      data-test="edit-modal"
       class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
     >
       <div

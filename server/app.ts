@@ -97,8 +97,12 @@ export function buildApp() {
     const album = albumRows[0];
     if (!album) return c.json({ error: "not found" }, 404);
     const albumPhotos = await db
-      .select()
+      .select({
+        photo: photos,
+        userName: users.name,
+      })
       .from(photos)
+      .leftJoin(users, eq(photos.userId, users.id))
       .where(eq(photos.albumId, album.id))
       .orderBy(sql`${photos.takenAt} ASC, ${photos.uploadedAt} ASC`);
     return c.json({
@@ -107,13 +111,16 @@ export function buildApp() {
         name: album.name,
         locationDisplay: album.locationDisplay,
       },
-      photos: albumPhotos.map((p) => ({
+      photos: albumPhotos.map(({ photo: p, userName }) => ({
         id: p.id,
         originalUrl: viewUrl(p.r2OriginalKey),
         thumbnailUrl: thumbnailUrl(p.r2OriginalKey),
         takenAt: p.takenAt,
         width: p.width,
         height: p.height,
+        uploadedAt: p.uploadedAt,
+        locationDisplay: p.locationDisplay,
+        uploadedBy: userName,
       })),
     });
   });
@@ -271,7 +278,7 @@ export function buildApp() {
             uploadedAt: photos.uploadedAt,
           })
           .from(photos)
-          .where(eq(photos.userId, user.id));
+          ;
 
         const countsByAlbum = new Map<
           string,
@@ -356,9 +363,13 @@ export function buildApp() {
           .limit(1);
         if (!album[0]) return c.json({ error: "not found" }, 404);
         const albumPhotos = await db
-          .select()
+          .select({
+            photo: photos,
+            userName: users.name,
+          })
           .from(photos)
-          .where(and(eq(photos.albumId, id), eq(photos.userId, user.id)))
+          .leftJoin(users, eq(photos.userId, users.id))
+          .where(eq(photos.albumId, id))
           .orderBy(sql`${photos.takenAt} ASC, ${photos.uploadedAt} ASC`);
 
         let collagePhotoIds: string[] | null = null;
@@ -379,7 +390,7 @@ export function buildApp() {
           coverPhotoId: album[0].coverPhotoId,
           coverMode: album[0].coverMode === "collage" ? "collage" : "single",
           collagePhotoIds,
-          photos: albumPhotos.map((p) => ({
+          photos: albumPhotos.map(({ photo: p, userName }) => ({
             id: p.id,
             originalUrl: viewUrl(p.r2OriginalKey),
             thumbnailUrl: thumbnailUrl(p.r2OriginalKey),
@@ -388,6 +399,7 @@ export function buildApp() {
             height: p.height,
             uploadedAt: p.uploadedAt,
             locationDisplay: p.locationDisplay,
+            uploadedBy: userName,
           })),
         });
       })
@@ -458,13 +470,13 @@ export function buildApp() {
         const userPhotos = await db
           .select()
           .from(photos)
-          .where(and(eq(photos.albumId, id), eq(photos.userId, user.id)));
+          .where(eq(photos.albumId, id));
         for (const p of userPhotos) {
           await deleteObject(p.r2OriginalKey).catch(() => undefined);
         }
         await db
           .delete(photos)
-          .where(and(eq(photos.albumId, id), eq(photos.userId, user.id)));
+          .where(eq(photos.albumId, id));
         await maybeDeleteEmptyAlbum(id);
         return c.json({ ok: true });
       }),
@@ -491,7 +503,7 @@ export function buildApp() {
         const owns = await db
           .select({ id: photos.id })
           .from(photos)
-          .where(and(eq(photos.albumId, albumId), eq(photos.userId, user.id)))
+          .where(eq(photos.albumId, albumId))
           .limit(1);
         if (owns.length === 0) return c.json({ error: "album not found" }, 404);
 
@@ -514,7 +526,7 @@ export function buildApp() {
         const owns = await db
           .select({ id: photos.id })
           .from(photos)
-          .where(and(eq(photos.albumId, albumId), eq(photos.userId, user.id)))
+          .where(eq(photos.albumId, albumId))
           .limit(1);
         if (owns.length === 0) return c.json({ error: "album not found" }, 404);
         const rows = await db
@@ -541,7 +553,7 @@ export function buildApp() {
         const rows = await db
           .select()
           .from(photos)
-          .where(eq(photos.userId, user.id))
+          
           .orderBy(sql`${photos.uploadedAt} DESC`);
         return c.json(
           rows.map((p) => ({
@@ -693,22 +705,13 @@ export function buildApp() {
         let albumId: string | null = null;
 
         if (targetAlbumId) {
-          const ownsTarget = await db
-            .select({ id: photos.id })
-            .from(photos)
-            .where(
-              and(
-                eq(photos.albumId, targetAlbumId),
-                eq(photos.userId, user.id),
-              ),
-            )
-            .limit(1);
+          
           const targetExists = await db
             .select()
             .from(albums)
             .where(eq(albums.id, targetAlbumId))
             .limit(1);
-          if (ownsTarget.length > 0 && targetExists.length > 0) {
+          if (targetExists.length > 0) {
             await db
               .update(photos)
               .set({ albumId: targetAlbumId })
@@ -749,7 +752,7 @@ export function buildApp() {
           .where(eq(photos.id, id))
           .limit(1);
         const photo = rows[0];
-        if (!photo || photo.userId !== user.id)
+        if (!photo)
           return c.json({ error: "not found" }, 404);
 
         const updates: Partial<typeof photos.$inferInsert> = {};
@@ -818,7 +821,7 @@ export function buildApp() {
           .where(eq(photos.id, id))
           .limit(1);
         const photo = photoRows[0];
-        if (!photo || photo.userId !== user.id)
+        if (!photo)
           return c.json({ error: "photo not found" }, 404);
 
         const targetAlbum = await db
@@ -828,13 +831,8 @@ export function buildApp() {
           .limit(1);
         if (!targetAlbum[0]) return c.json({ error: "album not found" }, 404);
 
-        const ownsTarget = await db
-          .select({ id: photos.id })
-          .from(photos)
-          .where(and(eq(photos.albumId, targetAlbumId), eq(photos.userId, user.id)))
-          .limit(1);
-        if (ownsTarget.length === 0)
-          return c.json({ error: "album not found" }, 404);
+        const targetExists = await db.select().from(albums).where(eq(albums.id, targetAlbumId)).limit(1);
+        if (targetExists.length === 0) return c.json({ error: "album not found" }, 404);
 
         const prevAlbumId = photo.albumId;
         if (prevAlbumId === targetAlbumId) return c.json({ ok: true });
@@ -860,7 +858,7 @@ export function buildApp() {
           .where(eq(photos.id, id))
           .limit(1);
         const p = rows[0];
-        if (!p || p.userId !== user.id) return c.json({ error: "not found" }, 404);
+        if (!p) return c.json({ error: "not found" }, 404);
         await deleteObject(p.r2OriginalKey).catch(() => undefined);
         await db.delete(photos).where(eq(photos.id, id));
         if (p.albumId) {
@@ -883,7 +881,7 @@ export function buildApp() {
         const owned = await db
           .select()
           .from(photos)
-          .where(and(eq(photos.userId, user.id), inArray(photos.id, ids)));
+          .where(inArray(photos.id, ids));
 
         const affectedAlbums = new Set<string>();
         for (const p of owned) {
@@ -892,7 +890,7 @@ export function buildApp() {
         }
         await db
           .delete(photos)
-          .where(and(eq(photos.userId, user.id), inArray(photos.id, ids)));
+          .where(inArray(photos.id, ids));
         for (const albumId of affectedAlbums) {
           await maybeFixAlbumCover(albumId);
           await maybeDeleteEmptyAlbum(albumId);
@@ -924,7 +922,7 @@ export function buildApp() {
         const owned = await db
           .select()
           .from(photos)
-          .where(and(eq(photos.userId, user.id), inArray(photos.id, ids)));
+          .where(inArray(photos.id, ids));
         const sourceAlbums = new Set(
           owned.map((p) => p.albumId).filter((x): x is string => !!x),
         );
@@ -932,7 +930,7 @@ export function buildApp() {
         await db
           .update(photos)
           .set({ albumId: targetAlbumId })
-          .where(and(eq(photos.userId, user.id), inArray(photos.id, ids)));
+          .where(inArray(photos.id, ids));
 
         for (const albumId of sourceAlbums) {
           if (albumId === targetAlbumId) continue;
