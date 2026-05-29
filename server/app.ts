@@ -268,8 +268,6 @@ export function buildApp() {
     "/albums",
     authedRouter()
       .get("/", async (c) => {
-        const user = c.get("user");
-
         const photoRows = await db
           .select({
             albumId: photos.albumId,
@@ -354,7 +352,6 @@ export function buildApp() {
         return c.json(visible);
       })
       .get("/:id", async (c) => {
-        const user = c.get("user");
         const id = c.req.param("id");
         const album = await db
           .select()
@@ -521,7 +518,6 @@ export function buildApp() {
         return c.json({ id, token, albumId, expiresAt: ttlDays ? now + ttlDays * 86400 : null }, 201);
       })
       .get("/album/:albumId", async (c) => {
-        const user = c.get("user");
         const albumId = c.req.param("albumId");
         const owns = await db
           .select({ id: photos.id })
@@ -549,7 +545,6 @@ export function buildApp() {
     "/photos",
     authedRouter()
       .get("/", async (c) => {
-        const user = c.get("user");
         const rows = await db
           .select()
           .from(photos)
