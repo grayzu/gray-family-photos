@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
+import { useAuthStore } from "@/stores/auth";
 
 type AlbumSummary = {
   id: string;
@@ -11,6 +12,7 @@ type AlbumSummary = {
   coverUrls: string[];
 };
 
+const auth = useAuthStore();
 const albums = ref<AlbumSummary[]>([]);
 const loading = ref(true);
 const error = ref<string | null>(null);
@@ -50,7 +52,7 @@ onMounted(load);
   <div>
     <div class="flex items-center justify-between mb-8">
       <h1 class="text-3xl font-display font-bold text-text-primary">Albums</h1>
-      <RouterLink to="/upload" class="bg-accent hover:bg-accent-hover text-base font-medium px-4 py-2.5 rounded-lg text-sm transition-colors shadow-sm">
+      <RouterLink v-if="auth.isAuthenticated" to="/upload" class="bg-accent hover:bg-accent-hover text-base font-medium px-4 py-2.5 rounded-lg text-sm transition-colors shadow-sm">
         Upload photos
       </RouterLink>
     </div>
@@ -77,9 +79,12 @@ onMounted(load);
         </svg>
       </div>
       <h3 class="text-xl font-display font-medium text-text-primary mb-2">No albums yet</h3>
-      <p class="text-text-muted mb-6 max-w-sm">Upload your first photos to automatically create organized albums.</p>
-      <RouterLink to="/upload" class="bg-surface-2 hover:bg-border-subtle text-text-primary font-medium px-6 py-2.5 rounded-lg text-sm transition-colors border border-border-subtle">
+      <p class="text-text-muted mb-6 max-w-sm">{{ auth.isAuthenticated ? "Upload your first photos to automatically create organized albums." : "Sign in to add the first family photos." }}</p>
+      <RouterLink v-if="auth.isAuthenticated" to="/upload" class="bg-surface-2 hover:bg-border-subtle text-text-primary font-medium px-6 py-2.5 rounded-lg text-sm transition-colors border border-border-subtle">
         Upload photos
+      </RouterLink>
+      <RouterLink v-else to="/login" class="bg-surface-2 hover:bg-border-subtle text-text-primary font-medium px-6 py-2.5 rounded-lg text-sm transition-colors border border-border-subtle">
+        Sign in
       </RouterLink>
     </div>
 

@@ -11,12 +11,11 @@ const Share = () => import("@/views/Share.vue");
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: "/", name: "albums", component: Albums, meta: { requiresAuth: true } },
+    { path: "/", name: "albums", component: Albums },
     {
       path: "/albums/:id",
       name: "album-detail",
       component: AlbumDetail,
-      meta: { requiresAuth: true },
     },
     {
       path: "/upload",
@@ -45,7 +44,7 @@ router.beforeEach(async (to) => {
   if (to.meta.requiresAuth && !auth.isAuthenticated) {
     return { name: "login", query: { redirect: to.fullPath } };
   }
-  if (to.meta.adminOnly && !auth.isAdmin) return { name: "home" };
-  if (to.meta.guestOnly && auth.isAuthenticated) return { name: "home" };
+  if (to.meta.adminOnly && !auth.isAdmin) return { name: "albums" };
+  if (to.meta.guestOnly && auth.isAuthenticated) return { name: "albums" };
   return true;
 });

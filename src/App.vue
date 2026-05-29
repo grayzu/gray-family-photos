@@ -27,7 +27,7 @@ watch(() => route.fullPath, () => {
 <template>
   <div class="min-h-screen bg-forest-radial bg-fixed bg-base text-text-primary font-sans antialiased">
     <ToastContainer />
-    <header v-if="auth.isAuthenticated" class="border-b border-border-subtle bg-surface/80 backdrop-blur sticky top-0 z-40">
+    <header class="border-b border-border-subtle bg-surface/80 backdrop-blur sticky top-0 z-40">
       <nav class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
         <RouterLink to="/" class="font-display font-semibold text-xl text-accent hover:text-accent-hover transition-colors">Gray Family Photos</RouterLink>
 
@@ -35,16 +35,26 @@ watch(() => route.fullPath, () => {
           <RouterLink to="/" class="text-text-muted hover:text-text-primary" active-class="text-text-primary">
             Albums
           </RouterLink>
-          <RouterLink to="/upload" class="text-text-muted hover:text-text-primary" active-class="text-text-primary">
-            Upload
+          <template v-if="auth.isAuthenticated">
+            <RouterLink to="/upload" class="text-text-muted hover:text-text-primary" active-class="text-text-primary">
+              Upload
+            </RouterLink>
+            <RouterLink v-if="auth.isAdmin" to="/admin" class="text-text-muted hover:text-text-primary" active-class="text-text-primary">
+              Admin
+            </RouterLink>
+            <span class="text-text-muted">{{ auth.user?.name }}</span>
+            <button data-test="logout" class="text-text-muted hover:text-accent" @click="handleLogout">
+              Logout
+            </button>
+          </template>
+          <RouterLink
+            v-else
+            to="/login"
+            data-test="login-link"
+            class="text-accent hover:text-accent-hover font-medium"
+          >
+            Sign in
           </RouterLink>
-          <RouterLink v-if="auth.isAdmin" to="/admin" class="text-text-muted hover:text-text-primary" active-class="text-text-primary">
-            Admin
-          </RouterLink>
-          <span class="text-text-muted">{{ auth.user?.name }}</span>
-          <button data-test="logout" class="text-text-muted hover:text-accent" @click="handleLogout">
-            Logout
-          </button>
         </div>
 
         <button
@@ -80,33 +90,44 @@ watch(() => route.fullPath, () => {
           >
             Albums
           </RouterLink>
+          <template v-if="auth.isAuthenticated">
+            <RouterLink
+              to="/upload"
+              class="py-3 text-text-muted active:bg-surface-2"
+              active-class="text-text-primary"
+              @click="mobileNavOpen = false"
+            >
+              Upload
+            </RouterLink>
+            <RouterLink
+              v-if="auth.isAdmin"
+              to="/admin"
+              class="py-3 text-text-muted active:bg-surface-2"
+              active-class="text-text-primary"
+              @click="mobileNavOpen = false"
+            >
+              Admin
+            </RouterLink>
+            <div class="py-3 border-t border-border-subtle text-text-muted text-sm">
+              {{ auth.user?.name }}
+            </div>
+            <button
+              data-test="logout-mobile"
+              class="py-3 text-left text-coral"
+              @click="handleLogout"
+            >
+              Logout
+            </button>
+          </template>
           <RouterLink
-            to="/upload"
-            class="py-3 text-text-muted active:bg-surface-2"
-            active-class="text-text-primary"
+            v-else
+            to="/login"
+            data-test="login-link-mobile"
+            class="py-3 text-accent active:bg-surface-2"
             @click="mobileNavOpen = false"
           >
-            Upload
+            Sign in
           </RouterLink>
-          <RouterLink
-            v-if="auth.isAdmin"
-            to="/admin"
-            class="py-3 text-text-muted active:bg-surface-2"
-            active-class="text-text-primary"
-            @click="mobileNavOpen = false"
-          >
-            Admin
-          </RouterLink>
-          <div class="py-3 border-t border-border-subtle text-text-muted text-sm">
-            {{ auth.user?.name }}
-          </div>
-          <button
-            data-test="logout-mobile"
-            class="py-3 text-left text-coral"
-            @click="handleLogout"
-          >
-            Logout
-          </button>
         </div>
       </div>
     </header>

@@ -1,8 +1,10 @@
 # gray-family-photos
 
-A family photo website with invite-only auth, automatic album organization by
-month + location, EXIF-based geocoding (with prompt fallback), and public
-share links. Deployed on Vercel.
+A family photo website with **publicly viewable albums** and **invite-only
+account creation**. Anyone with the URL can browse and view photos; only
+invited family members can upload, edit, or delete. Albums are organized
+automatically by month + location with EXIF-based geocoding (with prompt
+fallback). Deployed on Vercel.
 
 ## Stack
 
@@ -68,21 +70,41 @@ photo storage (zero egress fees).
    E2E_BASE_URL=http://localhost:3000 npm run e2e
    ```
 
+## Access model
+
+- **Public viewing**: anyone can browse `/` (album list) and `/albums/:id`
+  (album detail with photos) without signing in. No login is required to
+  view the family gallery.
+- **Invite-only accounts**: there is no self-signup. To get an account, an
+  admin must add your email + name on the `/admin` page, which triggers an
+  invite email. You then visit `/login`, enter your email, receive a
+  6-digit code by email, and type it in. First sign-in creates your
+  account from the allowlist entry.
+- **Authenticated actions**: uploading photos, creating share links, and
+  setting album thumbnails require a signed-in account.
+- **Admin-only actions**: editing, moving, and deleting photos or albums,
+  managing the invite allowlist, and renaming albums.
+
 ## First-time admin bootstrap
 
-If both `users` and `allowed_emails` tables are empty, the first email to
-request a sign-in code is automatically added to the allowlist as admin.
-After that, only emails in `users` or `allowed_emails` can sign in
-(unknown emails get a silent OK with no email sent).
+Account creation is invite-only with **no auto-bootstrap path**. To seed
+the first admin, insert a row directly into the `allowed_emails` table on
+your Turso database before the first sign-in attempt:
 
-Initial admin email: `mark@grayszone.com`
+```sql
+INSERT INTO allowed_emails (email, name, is_admin, added_by, added_at)
+VALUES ('you@example.com', 'Your Name', 1, NULL, unixepoch());
+```
+
+After that admin signs in once, they can invite additional family members
+from the `/admin` page.
 
 ## Sharing invites
 
 Admins go to `/admin` to add a family member's email + name to the
-allowlist. The family member visits `/login`, enters their email,
-receives a 6-digit code, and types it in. First sign-in creates their
-account from the allowlist entry.
+allowlist. The family member receives an invitation email (subject to
+Resend deliverability — see below), visits `/login`, enters their email,
+receives a 6-digit code, and types it in.
 
 ## Deployment
 

@@ -43,6 +43,7 @@ const auth = useAuthStore();
 const toast = useToastStore();
 
 const isAdmin = computed(() => auth.isAdmin);
+const isAuthenticated = computed(() => auth.isAuthenticated);
 const thumbnailModalOpen = ref(false);
 const album = ref<AlbumDetail | null>(null);
 const loading = ref(true);
@@ -405,7 +406,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
         </h1>
         <div class="relative flex items-center gap-4 text-sm shrink-0">
           <RouterLink
-            v-if="!selectMode && album"
+            v-if="!selectMode && album && isAuthenticated"
             :to="`/upload?albumId=${album.id}`"
             data-test="upload-to-album"
             class="text-text-muted hover:text-accent font-medium transition-colors"
@@ -421,6 +422,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
             Select
           </button>
           <button
+            v-if="isAuthenticated"
             @click="toggleSharePanel"
             data-test="share-toggle"
             class="text-accent hover:text-accent-hover underline"
@@ -577,12 +579,20 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
           </svg>
         </div>
         <h3 class="text-xl font-display font-medium text-text-primary mb-2">This album is empty</h3>
-        <p class="text-text-muted mb-6">Upload photos to add them to this album.</p>
+        <p class="text-text-muted mb-6">{{ isAuthenticated ? "Upload photos to add them to this album." : "Sign in to add photos to this album." }}</p>
         <RouterLink
+          v-if="isAuthenticated"
           :to="`/upload?albumId=${album.id}`"
           class="bg-surface-2 hover:bg-border-subtle text-text-primary font-medium px-6 py-2.5 rounded-lg text-sm transition-colors border border-border-subtle"
         >
           Upload photos
+        </RouterLink>
+        <RouterLink
+          v-else
+          to="/login"
+          class="bg-surface-2 hover:bg-border-subtle text-text-primary font-medium px-6 py-2.5 rounded-lg text-sm transition-colors border border-border-subtle"
+        >
+          Sign in
         </RouterLink>
       </div>
       <div

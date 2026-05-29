@@ -14,6 +14,12 @@ import {
   type User,
 } from "./db/schema.js";
 
+// Account creation is invite-only. The only path to sign in is to be present
+// in either the `users` table (existing account) or the `allowed_emails`
+// allowlist (added by an admin via POST /api/admin/allowed-emails). There is
+// no self-signup and no bootstrap path: the seed admin must be inserted
+// directly into the database the first time the app is deployed.
+
 const SESSION_COOKIE = "session";
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
 
@@ -54,21 +60,6 @@ export async function issueLoginCode(
     }
   }
 
-  if (!allowed) {
-    const isBootstrap = await isEmptyAuthDb();
-    if (isBootstrap) {
-      await db.insert(allowedEmails).values({
-        email,
-        name: email.split("@")[0]!,
-        isAdmin: true,
-        addedBy: null,
-        addedAt: Math.floor(Date.now() / 1000),
-      });
-      name = email.split("@")[0]!;
-      allowed = true;
-    }
-  }
-
   if (!allowed) return null;
 
   const code = generateNumericCode();
@@ -90,14 +81,6 @@ export async function issueLoginCode(
   });
 
   return { code, name };
-}
-
-async function isEmptyAuthDb(): Promise<boolean> {
-  const userCount = await db.select({ n: sql<number>`count(*)` }).from(users);
-  const allowCount = await db
-    .select({ n: sql<number>`count(*)` })
-    .from(allowedEmails);
-  return Number(userCount[0]?.n ?? 0) === 0 && Number(allowCount[0]?.n ?? 0) === 0;
 }
 
 export type VerifyResult =

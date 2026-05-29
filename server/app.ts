@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import type { MiddlewareHandler } from "hono";
 import { and, eq, sql, inArray } from "drizzle-orm";
 import { randomBytes } from "node:crypto";
 import { db } from "./db/client.js";
@@ -43,9 +44,27 @@ export function buildApp() {
     });
   }
 
+  type AuthedUser = { id: string; email: string; name: string; isAdmin: boolean };
   type Variables = {
-    user: { id: string; email: string; name: string; isAdmin: boolean };
+    user?: AuthedUser;
   };
+
+  const optionalAuth: MiddlewareHandler<{ Variables: Variables }> = async (c, next) => {
+    const token = readSessionCookie(c.req.header("cookie"));
+    if (token) {
+      const v = await validateSessionToken(token);
+      if (v) {
+        c.set("user", {
+          id: v.user.id,
+          email: v.user.email,
+          name: v.user.name,
+          isAdmin: v.user.isAdmin,
+        });
+      }
+    }
+    await next();
+  };
+
   function authedRouter() {
     return new Hono<{ Variables: Variables }>().use(async (c, next) => {
       const token = readSessionCookie(c.req.header("cookie"));
@@ -202,13 +221,13 @@ export function buildApp() {
     "/admin/allowed-emails",
     authedRouter()
       .get("/", async (c) => {
-        const user = c.get("user");
+        const user = c.get("user")!;
         if (!user.isAdmin) return c.json({ error: "admin only" }, 403);
         const rows = await db.select().from(allowedEmails);
         return c.json(rows);
       })
       .post("/", async (c) => {
-        const user = c.get("user");
+        const user = c.get("user")!;
         if (!user.isAdmin) return c.json({ error: "admin only" }, 403);
         const body = await c.req.json().catch(() => null);
         if (
@@ -256,7 +275,7 @@ export function buildApp() {
         return c.json({ email, name, isAdmin, invited, inviteError }, 201);
       })
       .delete("/:email", async (c) => {
-        const user = c.get("user");
+        const user = c.get("user")!;
         if (!user.isAdmin) return c.json({ error: "admin only" }, 403);
         const email = decodeURIComponent(c.req.param("email")).toLowerCase();
         await db.delete(allowedEmails).where(eq(allowedEmails.email, email));
@@ -264,144 +283,145 @@ export function buildApp() {
       }),
   );
 
+  app.get("/albums", optionalAuth, async (c) => {
+    const photoRows = await db
+      .select({
+        albumId: photos.albumId,
+        id: photos.id,
+        originalKey: photos.r2OriginalKey,
+        uploadedAt: photos.uploadedAt,
+      })
+      .from(photos);
+
+    const countsByAlbum = new Map<
+      string,
+      { count: number; latestKey: string | null; latestUploadedAt: number; keysById: Map<string, string> }
+    >();
+    for (const p of photoRows) {
+      if (!p.albumId) continue;
+      const existing = countsByAlbum.get(p.albumId);
+      if (!existing) {
+        const m = new Map<string, string>();
+        m.set(p.id, p.originalKey);
+        countsByAlbum.set(p.albumId, {
+          count: 1,
+          latestKey: p.originalKey,
+          latestUploadedAt: p.uploadedAt,
+          keysById: m,
+        });
+      } else {
+        existing.count++;
+        existing.keysById.set(p.id, p.originalKey);
+        if (p.uploadedAt > existing.latestUploadedAt) {
+          existing.latestKey = p.originalKey;
+          existing.latestUploadedAt = p.uploadedAt;
+        }
+      }
+    }
+
+    const albumRows = await db.select().from(albums);
+    const visible = albumRows
+      .map((a) => {
+        const info = countsByAlbum.get(a.id);
+        if (!info) return null;
+
+        let coverUrls: string[] = [];
+        if (a.coverMode === "collage" && a.collagePhotoIds) {
+          try {
+            const ids = JSON.parse(a.collagePhotoIds) as string[];
+            const keys = ids
+              .map((pid) => info.keysById.get(pid))
+              .filter((k): k is string => Boolean(k));
+            if (keys.length === 4) {
+              coverUrls = keys.map((k) => thumbnailUrl(k));
+            }
+          } catch {
+            /* corrupt json - fall through to single */
+          }
+        }
+        if (coverUrls.length === 0) {
+          const key = a.coverPhotoId
+            ? info.keysById.get(a.coverPhotoId) ?? info.latestKey
+            : info.latestKey;
+          if (key) coverUrls = [thumbnailUrl(key)];
+        }
+
+        return {
+          id: a.id,
+          name: a.name,
+          year: a.year,
+          month: a.month,
+          locationDisplay: a.locationDisplay,
+          photoCount: info.count,
+          coverMode: a.coverMode === "collage" && coverUrls.length === 4 ? "collage" : "single",
+          coverUrls,
+        };
+      })
+      .filter((x): x is NonNullable<typeof x> => x !== null)
+      .sort((a, b) => {
+        if (a.year !== b.year) return b.year - a.year;
+        if (a.month !== b.month) return b.month - a.month;
+        return a.name.localeCompare(b.name);
+      });
+
+    return c.json(visible);
+  });
+
+  app.get("/albums/:id", optionalAuth, async (c) => {
+    const id = c.req.param("id");
+    const album = await db
+      .select()
+      .from(albums)
+      .where(eq(albums.id, id))
+      .limit(1);
+    if (!album[0]) return c.json({ error: "not found" }, 404);
+    const albumPhotos = await db
+      .select({
+        photo: photos,
+        userName: users.name,
+      })
+      .from(photos)
+      .leftJoin(users, eq(photos.userId, users.id))
+      .where(eq(photos.albumId, id))
+      .orderBy(sql`${photos.takenAt} ASC, ${photos.uploadedAt} ASC`);
+
+    let collagePhotoIds: string[] | null = null;
+    if (album[0].coverMode === "collage" && album[0].collagePhotoIds) {
+      try {
+        collagePhotoIds = JSON.parse(album[0].collagePhotoIds) as string[];
+      } catch {
+        collagePhotoIds = null;
+      }
+    }
+
+    return c.json({
+      id: album[0].id,
+      name: album[0].name,
+      year: album[0].year,
+      month: album[0].month,
+      locationDisplay: album[0].locationDisplay,
+      coverPhotoId: album[0].coverPhotoId,
+      coverMode: album[0].coverMode === "collage" ? "collage" : "single",
+      collagePhotoIds,
+      photos: albumPhotos.map(({ photo: p, userName }) => ({
+        id: p.id,
+        originalUrl: viewUrl(p.r2OriginalKey),
+        thumbnailUrl: thumbnailUrl(p.r2OriginalKey),
+        takenAt: p.takenAt,
+        width: p.width,
+        height: p.height,
+        uploadedAt: p.uploadedAt,
+        locationDisplay: p.locationDisplay,
+        uploadedBy: userName,
+      })),
+    });
+  });
+
   app.route(
     "/albums",
     authedRouter()
-      .get("/", async (c) => {
-        const photoRows = await db
-          .select({
-            albumId: photos.albumId,
-            id: photos.id,
-            originalKey: photos.r2OriginalKey,
-            uploadedAt: photos.uploadedAt,
-          })
-          .from(photos)
-          ;
-
-        const countsByAlbum = new Map<
-          string,
-          { count: number; latestKey: string | null; latestUploadedAt: number; keysById: Map<string, string> }
-        >();
-        for (const p of photoRows) {
-          if (!p.albumId) continue;
-          const existing = countsByAlbum.get(p.albumId);
-          if (!existing) {
-            const m = new Map<string, string>();
-            m.set(p.id, p.originalKey);
-            countsByAlbum.set(p.albumId, {
-              count: 1,
-              latestKey: p.originalKey,
-              latestUploadedAt: p.uploadedAt,
-              keysById: m,
-            });
-          } else {
-            existing.count++;
-            existing.keysById.set(p.id, p.originalKey);
-            if (p.uploadedAt > existing.latestUploadedAt) {
-              existing.latestKey = p.originalKey;
-              existing.latestUploadedAt = p.uploadedAt;
-            }
-          }
-        }
-
-        const albumRows = await db.select().from(albums);
-        const visible = albumRows
-          .map((a) => {
-            const info = countsByAlbum.get(a.id);
-            if (!info) return null;
-
-            let coverUrls: string[] = [];
-            if (a.coverMode === "collage" && a.collagePhotoIds) {
-              try {
-                const ids = JSON.parse(a.collagePhotoIds) as string[];
-                const keys = ids
-                  .map((pid) => info.keysById.get(pid))
-                  .filter((k): k is string => Boolean(k));
-                if (keys.length === 4) {
-                  coverUrls = keys.map((k) => thumbnailUrl(k));
-                }
-              } catch {
-                /* corrupt json - fall through to single */
-              }
-            }
-            if (coverUrls.length === 0) {
-              const key = a.coverPhotoId
-                ? info.keysById.get(a.coverPhotoId) ?? info.latestKey
-                : info.latestKey;
-              if (key) coverUrls = [thumbnailUrl(key)];
-            }
-
-            return {
-              id: a.id,
-              name: a.name,
-              year: a.year,
-              month: a.month,
-              locationDisplay: a.locationDisplay,
-              photoCount: info.count,
-              coverMode: a.coverMode === "collage" && coverUrls.length === 4 ? "collage" : "single",
-              coverUrls,
-            };
-          })
-          .filter((x): x is NonNullable<typeof x> => x !== null)
-          .sort((a, b) => {
-            if (a.year !== b.year) return b.year - a.year;
-            if (a.month !== b.month) return b.month - a.month;
-            return a.name.localeCompare(b.name);
-          });
-
-        return c.json(visible);
-      })
-      .get("/:id", async (c) => {
-        const id = c.req.param("id");
-        const album = await db
-          .select()
-          .from(albums)
-          .where(eq(albums.id, id))
-          .limit(1);
-        if (!album[0]) return c.json({ error: "not found" }, 404);
-        const albumPhotos = await db
-          .select({
-            photo: photos,
-            userName: users.name,
-          })
-          .from(photos)
-          .leftJoin(users, eq(photos.userId, users.id))
-          .where(eq(photos.albumId, id))
-          .orderBy(sql`${photos.takenAt} ASC, ${photos.uploadedAt} ASC`);
-
-        let collagePhotoIds: string[] | null = null;
-        if (album[0].coverMode === "collage" && album[0].collagePhotoIds) {
-          try {
-            collagePhotoIds = JSON.parse(album[0].collagePhotoIds) as string[];
-          } catch {
-            collagePhotoIds = null;
-          }
-        }
-
-        return c.json({
-          id: album[0].id,
-          name: album[0].name,
-          year: album[0].year,
-          month: album[0].month,
-          locationDisplay: album[0].locationDisplay,
-          coverPhotoId: album[0].coverPhotoId,
-          coverMode: album[0].coverMode === "collage" ? "collage" : "single",
-          collagePhotoIds,
-          photos: albumPhotos.map(({ photo: p, userName }) => ({
-            id: p.id,
-            originalUrl: viewUrl(p.r2OriginalKey),
-            thumbnailUrl: thumbnailUrl(p.r2OriginalKey),
-            takenAt: p.takenAt,
-            width: p.width,
-            height: p.height,
-            uploadedAt: p.uploadedAt,
-            locationDisplay: p.locationDisplay,
-            uploadedBy: userName,
-          })),
-        });
-      })
       .patch("/:id", async (c) => {
-        if (!c.get("user").isAdmin) return c.json({ error: "admin only" }, 403);
+        if (!c.get("user")!.isAdmin) return c.json({ error: "admin only" }, 403);
         const id = c.req.param("id");
         const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
         if (!body || typeof body !== "object") {
@@ -461,7 +481,7 @@ export function buildApp() {
         return c.json({ ok: true });
       })
       .delete("/:id", async (c) => {
-        const user = c.get("user");
+        const user = c.get("user")!;
         if (!user.isAdmin) return c.json({ error: "admin only" }, 403);
         const id = c.req.param("id");
         const userPhotos = await db
@@ -483,7 +503,7 @@ export function buildApp() {
     "/share",
     authedRouter()
       .post("/", async (c) => {
-        const user = c.get("user");
+        const user = c.get("user")!;
         const body = await c.req.json().catch(() => null);
         if (
           !body ||
@@ -532,7 +552,7 @@ export function buildApp() {
         return c.json(rows);
       })
       .delete("/:token", async (c) => {
-        const user = c.get("user");
+        const user = c.get("user")!;
         const token = c.req.param("token");
         await db
           .delete(shareLinks)
@@ -564,7 +584,6 @@ export function buildApp() {
         );
       })
       .post("/upload-urls", async (c) => {
-        c.get("user");
         const body = (await c.req.json().catch(() => null)) as Record<
           string,
           unknown
@@ -589,7 +608,7 @@ export function buildApp() {
         });
       })
       .post("/commit", async (c) => {
-        const user = c.get("user");
+        const user = c.get("user")!;
         const body = (await c.req.json().catch(() => null)) as Record<
           string,
           unknown
@@ -734,7 +753,7 @@ export function buildApp() {
         );
       })
       .patch("/:id", async (c) => {
-        const user = c.get("user");
+        const user = c.get("user")!;
         if (!user.isAdmin) return c.json({ error: "admin only" }, 403);
         const id = c.req.param("id");
         const body = await c.req.json().catch(() => null);
@@ -800,7 +819,7 @@ export function buildApp() {
         return c.json({ ok: true });
       })
       .post("/:id/move", async (c) => {
-        const user = c.get("user");
+        const user = c.get("user")!;
         if (!user.isAdmin) return c.json({ error: "admin only" }, 403);
         const id = c.req.param("id");
         const body = await c.req.json().catch(() => null);
@@ -844,7 +863,7 @@ export function buildApp() {
         return c.json({ ok: true });
       })
       .delete("/:id", async (c) => {
-        const user = c.get("user");
+        const user = c.get("user")!;
         if (!user.isAdmin) return c.json({ error: "admin only" }, 403);
         const id = c.req.param("id");
         const rows = await db
@@ -863,7 +882,7 @@ export function buildApp() {
         return c.json({ ok: true });
       })
       .post("/bulk-delete", async (c) => {
-        const user = c.get("user");
+        const user = c.get("user")!;
         if (!user.isAdmin) return c.json({ error: "admin only" }, 403);
         const body = await c.req.json().catch(() => null);
         const ids = Array.isArray((body as Record<string, unknown> | null)?.ids)
@@ -893,7 +912,7 @@ export function buildApp() {
         return c.json({ ok: true, deleted: owned.length });
       })
       .post("/bulk-move", async (c) => {
-        const user = c.get("user");
+        const user = c.get("user")!;
         if (!user.isAdmin) return c.json({ error: "admin only" }, 403);
         const body = (await c.req.json().catch(() => null)) as Record<
           string,
