@@ -2,6 +2,7 @@
 import { onMounted, ref } from "vue";
 import { useRoute } from "vue-router";
 import Lightbox, { type LightboxPhoto } from "@/components/Lightbox.vue";
+import { useAuthStore } from "@/stores/auth";
 
 type PublicAlbum = {
   album: { id: string; name: string; locationDisplay: string };
@@ -9,6 +10,7 @@ type PublicAlbum = {
 };
 
 const route = useRoute();
+const auth = useAuthStore();
 const data = ref<PublicAlbum | null>(null);
 const loading = ref(true);
 const error = ref<string | null>(null);
@@ -72,6 +74,7 @@ onMounted(load);
       <Lightbox
         :photos="data.photos"
         :index="lightboxIdx"
+        :can-download="auth.isAuthenticated"
         @close="lightboxIdx = null"
         @navigate="(i) => (lightboxIdx = i)"
       />

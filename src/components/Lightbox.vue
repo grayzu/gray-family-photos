@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
+import { downloadOnePhoto } from "@/utils/download";
+import { useToastStore } from "@/stores/toast";
 
 export type LightboxPhoto = {
   id: string;
@@ -9,11 +11,15 @@ export type LightboxPhoto = {
   uploadedBy?: string | null;
 };
 
-const props = defineProps<{
-  photos: LightboxPhoto[];
-  index: number | null;
-  showActions?: boolean;
-}>();
+const props = withDefaults(
+  defineProps<{
+    photos: LightboxPhoto[];
+    index: number | null;
+    showActions?: boolean;
+    canDownload?: boolean;
+  }>(),
+  { canDownload: true },
+);
 
 const emit = defineEmits<{
   (e: "close"): void;
@@ -22,6 +28,25 @@ const emit = defineEmits<{
   (e: "move"): void;
   (e: "delete"): void;
 }>();
+
+const toast = useToastStore();
+const downloading = ref(false);
+
+async function downloadCurrent() {
+  if (!current.value || downloading.value) return;
+  downloading.value = true;
+  try {
+    const result = await downloadOnePhoto({
+      id: current.value.id,
+      originalUrl: current.value.originalUrl,
+      takenAt: current.value.takenAt,
+    });
+    if (result === "saved") toast.addToast("Photo saved", "success");
+    else if (result === "error") toast.addToast("Download failed", "error");
+  } finally {
+    downloading.value = false;
+  }
+}
 
 const menuOpen = ref(false);
 
@@ -202,15 +227,16 @@ function formatDate(taken: number | null) {
           by {{ current.uploadedBy }}
         </span>
         <a
-          :href="current.originalUrl"
-          :download="`photo-${current.id}.jpg`"
-          target="_blank"
-          rel="noopener"
-          @click.stop
-          class="underline hover:no-underline"
+          v-if="canDownload"
+          href="#"
+          @click.stop.prevent="downloadCurrent"
+          :class="[
+            'underline hover:no-underline',
+            downloading ? 'opacity-60 pointer-events-none' : '',
+          ]"
           data-test="lightbox-download"
         >
-          Download
+          {{ downloading ? "Downloading..." : "Download" }}
         </a>
       </div>
     </div>

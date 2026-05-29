@@ -7,6 +7,7 @@ import MoveToAlbumModal from "@/components/MoveToAlbumModal.vue";
 import EditPhotoModal from "@/components/EditPhotoModal.vue";
 import AlbumThumbnailModal from "@/components/AlbumThumbnailModal.vue";
 import { useToastStore } from "@/stores/toast";
+import { downloadManyPhotos } from "@/utils/download";
 
 type PhotoInAlbum = LightboxPhoto & {
   thumbnailUrl: string;
@@ -121,7 +122,7 @@ function openPhoto(i: number, p: PhotoInAlbum, e: MouseEvent) {
     toggleSelect(p.id);
     return;
   }
-  if (e.shiftKey || e.metaKey || e.ctrlKey) {
+  if (isAuthenticated.value && (e.shiftKey || e.metaKey || e.ctrlKey)) {
     enterSelectMode(p.id);
     return;
   }
@@ -163,6 +164,45 @@ async function bulkDelete() {
 function startBulkMove() {
   if (selectedIds.value.size === 0 || !album.value) return;
   moveModalPhotos.value = selectedPhotos.value;
+}
+
+const bulkDownloading = ref(false);
+
+async function bulkDownload() {
+  if (selectedIds.value.size === 0) return;
+  const photos = selectedPhotos.value.map((p) => ({
+    id: p.id,
+    originalUrl: p.originalUrl,
+    takenAt: p.takenAt,
+  }));
+  bulkDownloading.value = true;
+  toast.addToast(
+    photos.length === 1
+      ? "Downloading photo..."
+      : `Downloading ${photos.length} photos...`,
+    "info",
+  );
+  try {
+    const result = await downloadManyPhotos(photos);
+    if (result.status === "cancelled") return;
+    if (result.failed === 0) {
+      toast.addToast(
+        result.saved === 1
+          ? "Photo downloaded"
+          : `Downloaded ${result.saved} photos`,
+        "success",
+      );
+    } else if (result.saved === 0) {
+      toast.addToast("Download failed", "error");
+    } else {
+      toast.addToast(
+        `Downloaded ${result.saved} of ${result.total} (${result.failed} failed)`,
+        "error",
+      );
+    }
+  } finally {
+    bulkDownloading.value = false;
+  }
 }
 
 async function onBulkMoveConfirm(targetAlbumId: string) {
@@ -414,7 +454,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
             + Upload
           </RouterLink>
           <button
-            v-if="!selectMode && isAdmin"
+            v-if="!selectMode && isAuthenticated"
             @click="enterSelectMode()"
             data-test="enter-select"
             class="text-text-muted hover:text-text-primary"
@@ -495,6 +535,16 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
         </button>
         <div class="flex-1"></div>
         <button
+          v-if="isAuthenticated"
+          @click="bulkDownload"
+          :disabled="selectedIds.size === 0 || bulkDownloading"
+          data-test="bulk-download"
+          class="text-sm px-3 py-1.5 border border-border-subtle text-text-primary hover:border-accent rounded disabled:opacity-40"
+        >
+          {{ bulkDownloading ? "Downloading..." : "Download" }}
+        </button>
+        <button
+          v-if="isAdmin"
           @click="startBulkEdit"
           :disabled="selectedIds.size !== 1"
           data-test="bulk-edit"
@@ -503,6 +553,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
           Edit
         </button>
         <button
+          v-if="isAdmin"
           @click="startBulkMove"
           :disabled="selectedIds.size === 0"
           data-test="bulk-move"
@@ -511,6 +562,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
           Move
         </button>
         <button
+          v-if="isAdmin"
           @click="bulkDelete"
           :disabled="selectedIds.size === 0"
           data-test="bulk-delete"
@@ -639,6 +691,7 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
         :photos="album.photos"
         :index="lightboxIdx"
         :show-actions="isAdmin"
+        :can-download="isAuthenticated"
         @close="lightboxIdx = null"
         @navigate="(i) => (lightboxIdx = i)"
         @edit="editFromLightbox"

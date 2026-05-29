@@ -30,12 +30,12 @@ test.describe("public viewing (no login)", () => {
     await expect(page.locator('[data-test="advanced-menu"]')).toHaveCount(0);
   });
 
-  test("lightbox opens for anonymous viewer and shows no admin menu", async ({ page }) => {
+  test("lightbox opens for anonymous viewer and shows no admin menu or download", async ({ page }) => {
     await page.goto("/");
     await page.locator('[data-test="album-card"]').first().click();
     await page.locator('[data-test="album-photo"]').first().click();
     await expect(page.locator('[data-test="lightbox"]')).toBeVisible();
     await expect(page.locator('[data-test="lightbox-menu"]')).toHaveCount(0);
-    await expect(page.locator('[data-test="lightbox-download"]')).toBeVisible();
+    await expect(page.locator('[data-test="lightbox-download"]')).toHaveCount(0);
   });
 });
