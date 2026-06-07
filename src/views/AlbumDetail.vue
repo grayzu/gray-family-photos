@@ -38,6 +38,19 @@ type AlbumDetail = {
   collagePhotoIds?: string[] | null;
 };
 
+type PhotoDayGroup = {
+  key: string;
+  label: string;
+  photos: { photo: PhotoInAlbum; index: number }[];
+};
+
+const DAY_HEADING_FORMAT = new Intl.DateTimeFormat(undefined, {
+  weekday: "long",
+  year: "numeric",
+  month: "long",
+  day: "numeric",
+});
+
 const route = useRoute();
 const router = useRouter();
 const auth = useAuthStore();
@@ -65,6 +78,27 @@ const editModalPhoto = ref<PhotoInAlbum | null>(null);
 const selectedPhotos = computed(() => {
   if (!album.value) return [];
   return album.value.photos.filter((p) => selectedIds.value.has(p.id));
+});
+
+const photoDayGroups = computed<PhotoDayGroup[]>(() => {
+  if (!album.value) return [];
+  const groups = new Map<string, PhotoDayGroup>();
+
+  album.value.photos.forEach((photo, index) => {
+    const date = photo.takenAt === null ? null : new Date(photo.takenAt * 1000);
+    const key = date
+      ? `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
+      : "undated";
+    const label = date ? DAY_HEADING_FORMAT.format(date) : "Undated";
+    const existing = groups.get(key);
+    if (existing) {
+      existing.photos.push({ photo, index });
+    } else {
+      groups.set(key, { key, label, photos: [{ photo, index }] });
+    }
+  });
+
+  return Array.from(groups.values());
 });
 
 async function load() {
@@ -647,44 +681,47 @@ onBeforeUnmount(() => window.removeEventListener("keydown", onKeyDown));
           Sign in
         </RouterLink>
       </div>
-      <div
-        v-else
-        data-test="album-photo-grid"
-        class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3"
-      >
-        <button
-          v-for="(p, i) in album.photos"
-          :key="p.id"
-          type="button"
-          @click="(e) => openPhoto(i, p, e)"
-          :class="[
-            'relative block w-full aspect-square overflow-hidden rounded bg-surface-2 border transition-all',
-            selectedIds.has(p.id)
-              ? 'border-accent ring-2 ring-accent ring-offset-2 ring-offset-base'
-              : 'border-border-subtle hover:border-accent',
-          ]"
-          data-test="album-photo"
-          :aria-label="selectMode ? `Toggle selection for photo ${i + 1}` : `Open photo ${i + 1}`"
-        >
-          <img
-            :src="p.thumbnailUrl"
-            :alt="p.locationDisplay ?? 'Photo'"
-            loading="lazy"
-            class="w-full h-full object-cover"
-          />
-          <span
-            v-if="selectMode"
-            :class="[
-              'absolute top-2 right-2 w-6 h-6 rounded-full border-2 flex items-center justify-center text-xs',
-              selectedIds.has(p.id)
-                ? 'bg-accent border-accent text-base'
-                : 'bg-base/60 border-text-muted/70 text-transparent',
-            ]"
-            data-test="select-mark"
-          >
-            ✓
-          </span>
-        </button>
+      <div v-else data-test="album-photo-groups" class="space-y-8">
+        <section v-for="group in photoDayGroups" :key="group.key">
+          <h2 class="text-lg font-display font-semibold mb-3 text-text-muted/90" data-test="photo-day-heading">
+            {{ group.label }}
+          </h2>
+          <div data-test="album-photo-grid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+            <button
+              v-for="item in group.photos"
+              :key="item.photo.id"
+              type="button"
+              @click="(e) => openPhoto(item.index, item.photo, e)"
+              :class="[
+                'relative block w-full aspect-square overflow-hidden rounded bg-surface-2 border transition-all',
+                selectedIds.has(item.photo.id)
+                  ? 'border-accent ring-2 ring-accent ring-offset-2 ring-offset-base'
+                  : 'border-border-subtle hover:border-accent',
+              ]"
+              data-test="album-photo"
+              :aria-label="selectMode ? `Toggle selection for photo ${item.index + 1}` : `Open photo ${item.index + 1}`"
+            >
+              <img
+                :src="item.photo.thumbnailUrl"
+                :alt="item.photo.locationDisplay ?? 'Photo'"
+                loading="lazy"
+                class="w-full h-full object-cover"
+              />
+              <span
+                v-if="selectMode"
+                :class="[
+                  'absolute top-2 right-2 w-6 h-6 rounded-full border-2 flex items-center justify-center text-xs',
+                  selectedIds.has(item.photo.id)
+                    ? 'bg-accent border-accent text-base'
+                    : 'bg-base/60 border-text-muted/70 text-transparent',
+                ]"
+                data-test="select-mark"
+              >
+                ✓
+              </span>
+            </button>
+          </div>
+        </section>
       </div>
 
       <Lightbox

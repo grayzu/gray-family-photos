@@ -37,6 +37,7 @@ test("clicking an album shows its detail page with photos", async ({ page }) => 
   await expect(page.locator('[data-test="album-name"]')).toBeVisible({
     timeout: 10000,
   });
+  await expect(page.locator('[data-test="photo-day-heading"]').first()).toBeVisible();
   await expect(page.locator('[data-test="album-photo"]').first()).toBeVisible();
 });
 
