@@ -4,7 +4,12 @@ import { useRoute, useRouter } from "vue-router";
 import PhotoMetadataPromptModal, {
   type LocationCandidate,
 } from "@/components/PhotoMetadataPromptModal.vue";
-import { hasGps, parsePhotoExif, type ParsedExif } from "@/lib/exif";
+import {
+  hasGps,
+  parsePhotoExif,
+  resolveTakenAtUnix,
+  type ParsedExif,
+} from "@/lib/exif";
 
 type Status =
   | "pending"
@@ -30,7 +35,6 @@ const jobs = ref<Job[]>([]);
 const promptingIdx = ref<number | null>(null);
 
 const lastConfirmedLocation = ref<LocationCandidate | null>(null);
-const lastConfirmedDate = ref<number | null>(null);
 
 const targetAlbumId = ref<string | null>(null);
 const targetAlbumName = ref<string | null>(null);
@@ -113,6 +117,7 @@ async function onSelect(e: Event) {
 
   for (const job of jobs.value) {
     job.exif = await parsePhotoExif(job.file);
+    job.takenAtOverride = resolveTakenAtUnix(job.file, job.exif);
     const dims = await readDimensions(job.file);
     job.width = dims.width;
     job.height = dims.height;
@@ -123,17 +128,33 @@ function jobHasLocation(job: Job): boolean {
   return Boolean(job.location) || (job.exif !== null && hasGps(job.exif));
 }
 
-function jobHasDate(job: Job): boolean {
-  return job.takenAtOverride !== null || job.exif?.takenAt instanceof Date;
+function unixToLocalInput(ts: number | null): string {
+  if (ts === null) return "";
+  const d = new Date(ts * 1000);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function onDateInput(i: number, e: Event) {
+  const job = jobs.value[i];
+  const value = (e.target as HTMLInputElement).value;
+  if (!job || !value) return;
+  const ts = Math.floor(new Date(value).getTime() / 1000);
+  if (Number.isFinite(ts)) job.takenAtOverride = ts;
 }
 
 async function startBatch() {
   for (let i = 0; i < jobs.value.length; i++) {
     const job = jobs.value[i]!;
     if (job.status === "done" || job.status === "error") continue;
-    if (!job.exif) job.exif = await parsePhotoExif(job.file);
+    if (!job.exif) {
+      job.exif = await parsePhotoExif(job.file);
+      if (job.takenAtOverride === null) {
+        job.takenAtOverride = resolveTakenAtUnix(job.file, job.exif);
+      }
+    }
 
-    if (!jobHasLocation(job) || !jobHasDate(job)) {
+    if (!targetAlbumId.value && !jobHasLocation(job)) {
       job.status = "needs-metadata";
       promptingIdx.value = i;
       return;
@@ -160,7 +181,9 @@ async function uploadOne(i: number) {
     const exifLon = job.exif?.longitude ?? null;
     const lat = job.location?.lat ?? exifLat;
     const lon = job.location?.lon ?? exifLon;
-    if (lat === null || lon === null) throw new Error("location required");
+    if ((lat === null || lon === null) && !targetAlbumId.value) {
+      throw new Error("location required");
+    }
 
     const urlsRes = await fetch("/api/photos/upload-urls", {
       method: "POST",
@@ -169,8 +192,6 @@ async function uploadOne(i: number) {
       body: JSON.stringify({
         fileName: job.file.name,
         mimeType: job.file.type || "image/jpeg",
-        latitude: lat,
-        longitude: lon,
       }),
     });
     if (!urlsRes.ok) {
@@ -193,11 +214,7 @@ async function uploadOne(i: number) {
       );
     }
 
-    const takenAt =
-      job.takenAtOverride ??
-      (job.exif?.takenAt instanceof Date
-        ? Math.floor(job.exif.takenAt.getTime() / 1000)
-        : null);
+    const takenAt = job.takenAtOverride;
 
     const commitRes = await fetch("/api/photos/commit", {
       method: "POST",
@@ -239,7 +256,7 @@ const remainingCount = computed(() => {
   for (let i = promptingIdx.value + 1; i < jobs.value.length; i++) {
     const j = jobs.value[i]!;
     if (j.status === "done" || j.status === "error") continue;
-    if (!jobHasLocation(j) || !jobHasDate(j)) count++;
+    if (!jobHasLocation(j)) count++;
   }
   return count;
 });
@@ -250,28 +267,16 @@ const initialLocation = computed<LocationCandidate | null>(() => {
   return lastConfirmedLocation.value;
 });
 
-const initialDateUnix = computed<number | null>(() => {
-  if (!currentJob.value) return null;
-  if (currentJob.value.takenAtOverride !== null)
-    return currentJob.value.takenAtOverride;
-  const exifDate = currentJob.value.exif?.takenAt;
-  if (exifDate instanceof Date) return Math.floor(exifDate.getTime() / 1000);
-  return lastConfirmedDate.value;
-});
-
 async function onMetadataConfirm(value: {
   location: LocationCandidate;
-  takenAtUnix: number;
   applyToRemaining: boolean;
 }) {
   if (promptingIdx.value === null) return;
   const i = promptingIdx.value;
   const job = jobs.value[i]!;
   job.location = value.location;
-  job.takenAtOverride = value.takenAtUnix;
   job.status = "pending";
   lastConfirmedLocation.value = value.location;
-  lastConfirmedDate.value = value.takenAtUnix;
   promptingIdx.value = null;
 
   if (value.applyToRemaining) {
@@ -279,7 +284,6 @@ async function onMetadataConfirm(value: {
       const r = jobs.value[j]!;
       if (r.status === "done" || r.status === "error") continue;
       if (!jobHasLocation(r)) r.location = value.location;
-      if (!jobHasDate(r)) r.takenAtOverride = value.takenAtUnix;
     }
   }
 
@@ -346,10 +350,24 @@ function statusLabel(s: Status) {
         v-for="(job, i) in jobs"
         :key="i"
         data-test="upload-job"
-        class="flex items-center gap-3 text-sm border-b border-border-subtle pb-2"
+        class="flex items-start gap-3 text-sm border-b border-border-subtle pb-2"
       >
-        <span class="flex-1 truncate text-text-primary">{{ job.file.name }}</span>
+        <div class="flex-1 min-w-0">
+          <span class="block truncate text-text-primary">{{ job.file.name }}</span>
+          <label class="mt-1 flex items-center gap-2">
+            <span class="text-[11px] text-text-muted shrink-0">Date taken</span>
+            <input
+              type="datetime-local"
+              data-test="upload-job-date"
+              :value="unixToLocalInput(job.takenAtOverride)"
+              :disabled="job.status !== 'pending' && job.status !== 'needs-metadata'"
+              @change="onDateInput(i, $event)"
+              class="min-w-0 flex-1 max-w-[15rem] rounded bg-surface-2 border border-border-subtle px-2 py-1 text-xs text-text-primary focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50"
+            />
+          </label>
+        </div>
         <span
+          class="shrink-0"
           :class="{
             'text-text-muted': job.status === 'pending',
             'text-gold':
@@ -382,17 +400,17 @@ function statusLabel(s: Status) {
     </button>
 
     <p class="mt-3 text-xs text-text-muted">
-      Date and location are required for every photo. If your camera didn't
-      capture them in EXIF, you'll be prompted before upload. The first answer
-      becomes the default for the remaining photos. iPhone Live Photos and
-      Sony A7IV HEIF are converted to JPEG server-side.
+      Each photo's date is filled in automatically from its EXIF capture date,
+      or the file's date when none was recorded &mdash; adjust any date above
+      before uploading. Location is only required for photos uploaded outside an
+      album; if it's missing you'll be prompted. iPhone Live Photos and Sony
+      A7IV HEIF are converted to JPEG server-side.
     </p>
 
     <PhotoMetadataPromptModal
       :open="promptingIdx !== null"
       :file-name="currentJob?.file.name"
       :initial-location="initialLocation"
-      :initial-date-unix="initialDateUnix"
       :remaining-count="remainingCount"
       :show-apply-to-remaining="remainingCount > 0"
       @confirm="onMetadataConfirm"

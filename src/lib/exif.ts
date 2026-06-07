@@ -24,3 +24,14 @@ export async function parsePhotoExif(file: File): Promise<ParsedExif> {
 export function hasGps(parsed: ParsedExif): boolean {
   return parsed.latitude !== null && parsed.longitude !== null;
 }
+
+/**
+ * Resolve "date taken" as a Unix timestamp: EXIF capture date, else the file's
+ * lastModified (the browser exposes no true file creation date).
+ */
+export function resolveTakenAtUnix(file: File, parsed: ParsedExif | null): number {
+  if (parsed?.takenAt instanceof Date) {
+    return Math.floor(parsed.takenAt.getTime() / 1000);
+  }
+  return Math.floor(file.lastModified / 1000);
+}

@@ -16,7 +16,6 @@ const props = defineProps<{
   fileName?: string;
   remainingCount?: number;
   initialLocation: LocationCandidate | null;
-  initialDateUnix: number | null;
   showApplyToRemaining: boolean;
 }>();
 
@@ -25,7 +24,6 @@ const emit = defineEmits<{
     e: "confirm",
     value: {
       location: LocationCandidate;
-      takenAtUnix: number;
       applyToRemaining: boolean;
     },
   ): void;
@@ -35,7 +33,6 @@ const emit = defineEmits<{
 const query = ref("");
 const candidates = ref<LocationCandidate[]>([]);
 const selected = ref<LocationCandidate | null>(null);
-const dateValue = ref<string>("");
 const applyToRemaining = ref(false);
 const loadingLocations = ref(false);
 const searchedOnce = ref(false);
@@ -43,17 +40,6 @@ const locationError = ref<string | null>(null);
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 let lastIssuedToken = 0;
-
-function unixToInputValue(ts: number | null): string {
-  if (!ts) {
-    const now = new Date();
-    const pad = (n: number) => String(n).padStart(2, "0");
-    return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}`;
-  }
-  const d = new Date(ts * 1000);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
 
 watch(
   () => props.open,
@@ -67,7 +53,6 @@ watch(
       query.value = "";
       candidates.value = [];
     }
-    dateValue.value = unixToInputValue(props.initialDateUnix);
     applyToRemaining.value = false;
     searchedOnce.value = false;
     locationError.value = null;
@@ -114,12 +99,9 @@ async function doSearch(q: string) {
 }
 
 function confirm() {
-  if (!selected.value || !dateValue.value) return;
-  const ts = Math.floor(new Date(dateValue.value).getTime() / 1000);
-  if (!Number.isFinite(ts)) return;
+  if (!selected.value) return;
   emit("confirm", {
     location: selected.value,
-    takenAtUnix: ts,
     applyToRemaining: applyToRemaining.value,
   });
 }
@@ -136,22 +118,12 @@ function confirm() {
         class="bg-surface rounded-xl shadow-2xl border border-border-subtle max-w-md w-full p-6 modal-content"
       >
         <h2 class="text-lg font-semibold mb-1 text-text-primary">
-          Photo details
+          Add a location
         </h2>
         <p class="text-sm text-text-muted mb-4">
-          {{ fileName ?? "This photo" }} needs a date and location. EXIF didn't
-          include both.
+          {{ fileName ?? "This photo" }} doesn't have location info. Search for
+          where it was taken.
         </p>
-
-        <label class="block mb-3">
-          <span class="text-sm text-text-muted">Date taken</span>
-          <input
-            v-model="dateValue"
-            type="datetime-local"
-            data-test="metadata-date"
-            class="mt-1 block w-full rounded bg-surface-2 border border-border-subtle px-3 py-2 text-text-primary focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
-          />
-        </label>
 
         <label class="block">
           <span class="text-sm text-text-muted">Location</span>
@@ -229,7 +201,7 @@ function confirm() {
             class="accent-accent"
           />
           <span>
-            Apply this date &amp; location to the remaining
+            Apply this location to the remaining
             {{ remainingCount }} photo{{ remainingCount === 1 ? "" : "s" }}
           </span>
         </label>
@@ -245,7 +217,7 @@ function confirm() {
           <button
             type="button"
             @click="confirm"
-            :disabled="!selected || !dateValue"
+            :disabled="!selected"
             data-test="metadata-confirm"
             class="px-4 py-2 text-sm bg-accent hover:bg-accent-hover text-base font-medium rounded disabled:opacity-50 transition-colors"
           >

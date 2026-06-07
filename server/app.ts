@@ -594,11 +594,6 @@ export function buildApp() {
         if (!mimeType.startsWith("image/")) {
           return c.json({ error: "image only" }, 400);
         }
-        const lat = Number(body.latitude);
-        const lon = Number(body.longitude);
-        if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-          return c.json({ error: "location required" }, 400);
-        }
         const ext = fileName.split(".").pop() ?? "jpg";
         const originalKey = newPhotoKey(ext);
         const originalUploadUrl = await presignPut(originalKey, mimeType, 600);
@@ -637,20 +632,29 @@ export function buildApp() {
         const takenAt =
           typeof body.takenAt === "number" ? body.takenAt : null;
 
-        if (
-          !rawOriginalKey ||
-          !mimeType ||
-          fileSize === null ||
-          latitude === null ||
-          longitude === null
-        ) {
+        const targetAlbumId =
+          typeof body.targetAlbumId === "string" ? body.targetAlbumId : null;
+        let targetAlbumExists = false;
+        if (targetAlbumId) {
+          const targetRows = await db
+            .select({ id: albums.id })
+            .from(albums)
+            .where(eq(albums.id, targetAlbumId))
+            .limit(1);
+          targetAlbumExists = targetRows.length > 0;
+        }
+
+        if (!rawOriginalKey || !mimeType || fileSize === null) {
           return c.json({ error: "missing required fields" }, 400);
+        }
+        if (!targetAlbumExists && (latitude === null || longitude === null)) {
+          return c.json({ error: "location required" }, 400);
         }
         if (!rawOriginalKey.startsWith("originals/")) {
           return c.json({ error: "invalid key" }, 400);
         }
 
-        if (!locationDisplay) {
+        if (!locationDisplay && latitude !== null && longitude !== null) {
           try {
             const rev = await reverseGeocode(latitude, longitude);
             if (rev) {
@@ -714,24 +718,14 @@ export function buildApp() {
           .where(eq(photos.id, id))
           .limit(1);
 
-        const targetAlbumId =
-          typeof body.targetAlbumId === "string" ? body.targetAlbumId : null;
         let albumId: string | null = null;
 
-        if (targetAlbumId) {
-          
-          const targetExists = await db
-            .select()
-            .from(albums)
-            .where(eq(albums.id, targetAlbumId))
-            .limit(1);
-          if (targetExists.length > 0) {
-            await db
-              .update(photos)
-              .set({ albumId: targetAlbumId })
-              .where(eq(photos.id, id));
-            albumId = targetAlbumId;
-          }
+        if (targetAlbumId && targetAlbumExists) {
+          await db
+            .update(photos)
+            .set({ albumId: targetAlbumId })
+            .where(eq(photos.id, id));
+          albumId = targetAlbumId;
         }
 
         if (!albumId && inserted[0]) {

@@ -58,11 +58,12 @@ test("upload to specific album from album detail puts photo in that album regard
     "Darwin",
   );
 
-  await uploadAt(page, "hobart");
-
   const commitRes = page.waitForResponse(
     (r) => r.url().includes("/api/photos/commit") && r.request().method() === "POST",
   );
+  await page.locator('[data-test="files"]').setInputFiles("/tmp/test-photo.jpg");
+  await page.locator('[data-test="start"]').click();
+  await expect(page.locator('[data-test="metadata-modal"]')).toBeHidden();
   await commitRes;
 
   await expect(page).toHaveURL(/\/albums\/[^/]+$/, { timeout: 15000 });
