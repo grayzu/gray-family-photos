@@ -31,3 +31,6 @@ playwright-report
 *.sln
 *.sw?
 session-*.md
+
+# graphify generated output (regenerate locally with `graphify update .`)
+graphify-out/
